@@ -155,13 +155,19 @@ and are not tied to any login session or human user.
   `/opt/jack/deploy/jack-update.sh`.
 - **`deploy/jack-update.sh`:** `git fetch origin main`; if `HEAD` differs
   from `origin/main`, `git reset --hard origin/main` and
-  `systemctl restart jack`. Local edits on the Pi are discarded by design.
+  `systemctl try-restart jack` (restarts only if running, so a deliberate
+  stop is not overridden). Local edits on the Pi are discarded by design.
   The repo is the only source of truth.
 - **`deploy/install.sh`** (run once as root by Boss): installs `git`,
   enables I2C (`raspi-config nonint do_i2c 0`), creates the `jack` system
   user, clones to `/opt/jack`, installs and enables the units, and says
   to reboot so I2C takes effect.
 - **Logs:** `journalctl -u jack -u jack-update`.
+- **Accepted risk:** `jack-update.service` runs
+  `/opt/jack/deploy/jack-update.sh` as root, and that script is replaced
+  from the repo on every deploy, so anyone who can push to `main` can run
+  code as root on the Pi. Boss accepted this deliberately in exchange for
+  the updater updating itself.
 
 ## Out of scope
 
