@@ -51,9 +51,11 @@ prefer the closed and relaxed-open poses and keep fully open short.
 1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
    its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
    terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
-2. **Motor B** holds −6 V for 0.5 s, then −3 V for 1 s, then 0 V for 2 s
-   (3.5 s cycle), set in `MOTOR_B_SEQUENCE` as `(volts, seconds)` pairs.
-   - With 12 V supply, 6 V = 50% duty = count 2048; 3 V = count 1024.
+2. **Motor B (the mouth)** loops `MOUTH_DEMO`, a demo that stands in until
+   control inputs (audio, DMX, websockets) are wired in:
+   `CLOSE` (+1 V, 0.25 s), rest 1.5 s, `RELAX` (−2 V, 0.5 s), rest 1.5 s,
+   `open_fully(0.5)` (−6 V, 0.5 s): a 4.25 s cycle. "Rest" is 0 V (braked);
+   the mouth stays in the pose it last reached.
 3. **Motor A** holds 0 V for the whole cycle.
 4. Repeat the cycle back-to-back, with no pause, until the process is
    stopped.
@@ -68,9 +70,9 @@ For finding mouth positions interactively on the Pi, without a commit per try:
 - Stop the app first (`sudo systemctl stop jack`); the tool refuses to run
   while `jack.service` is active, since both would drive the same chip.
 - Run `python3 /opt/jack/calibrate.py` as a user in the `i2c` group. Each
-  line `<volts> <seconds>` drives motor B (negative = backward, the same
-  convention as `MOTOR_B_SEQUENCE`), then short-brakes. `q` or end of input
-  quits.
+  line `<volts> <seconds>` drives motor B (negative = backward), then
+  short-brakes. `close`, `relax` and `open <seconds>` play the calibrated
+  poses from `motor_test/mouth.py`. `q` or end of input quits.
 - Volts must be within ±supply; seconds must be more than 0 and at most
   3 s, to limit stall heating against an end stop. Rejected lines never
   move the motor.
@@ -116,6 +118,9 @@ The app must come back on its own from any failure, without a human:
   whole number of steps. All raise `ValueError` for a non-positive supply, a voltage outside the
   supply range, or an odd or too-small step count. Magnitudes cap at 4095
   (4096 would set the PCA9685 full-off bit).
+- `motor_test/mouth.py` (domain, pure): the calibrated mouth poses as
+  `(volts, seconds)` segments: `CLOSE`, `RELAX`, `open_fully(seconds)` and
+  `rest(seconds)`.
 - `motor_test/ports.py`: the `MotorOutput` protocol, with
   `drive(count)` (signed) and `stop()`.
 - `motor_test/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
@@ -147,8 +152,8 @@ The app must come back on its own from any failure, without a human:
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
-- `main.py`: builds one `Pca9685`, pairs motor A (0 V) and motor B (its hold
-  sequence) with their profiles (`build_profiles`), wires them to the profile loop,
+- `main.py`: builds one `Pca9685`, pairs motor A (0 V) and motor B (the
+  mouth demo) with their profiles (`build_profiles`), wires them to the profile loop,
   installs a SIGTERM handler that
   raises `SystemExit` so the loop's cleanup runs, sends `READY=1` after
   motor init, and starts the loop with `on_cycle` sending `WATCHDOG=1`.
@@ -184,8 +189,10 @@ The app must come back on its own from any failure, without a human:
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.build_profiles` holds motor A at 0 V and plays motor B's
-    −6/−3/0 V sequence over a 3.5 s cycle, well inside the 10 s watchdog.
+  - `main.build_profiles` holds motor A at 0 V and plays the mouth demo
+    (+341 ×5, 0 ×30, −683 ×10, 0 ×30, −2048 ×10) over a 4.25 s cycle,
+    inside the 10 s watchdog with two cycles to spare.
+  - The mouth poses match the calibration table.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.

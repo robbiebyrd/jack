@@ -31,7 +31,16 @@ def run(motor, *lines, then=EOFError):
 
 
 def test_parses_volts_and_seconds():
-    assert parse_command("-4.5 0.8", SUPPLY) == Move(volts=-4.5, seconds=0.8)
+    assert parse_command("-4.5 0.8", SUPPLY) == (Move(volts=-4.5, seconds=0.8),)
+
+
+def test_close_and_relax_name_the_calibrated_poses():
+    assert parse_command("close", SUPPLY) == (Move(1.0, 0.25),)
+    assert parse_command("relax", SUPPLY) == (Move(-2.0, 0.5),)
+
+
+def test_open_holds_fully_open_for_the_given_seconds():
+    assert parse_command("open 0.5", SUPPLY) == (Move(-6.0, 0.5),)
 
 
 @pytest.mark.parametrize("line", ["q", "quit", "  q  "])
@@ -44,13 +53,16 @@ def test_q_means_quit(line):
     [
         "-4.5",  # missing duration
         "-4.5 0.8 1",  # extra word
-        "open 0.8",  # not a number
+        "wide 0.8",  # not a number or a command
         "-13 0.8",  # beyond -supply
         "13 0.8",  # beyond +supply
         "nan 0.8",  # not a real voltage
         "-4.5 0",  # zero duration
         "-4.5 -1",  # negative duration
         f"-4.5 {MAX_MOVE_S + 0.1}",  # longer than the stall-safety cap
+        "open",  # open needs a duration
+        f"open {MAX_MOVE_S + 0.1}",  # open longer than the stall-safety cap
+        "close 1",  # close takes no argument
     ],
 )
 def test_bad_commands_are_rejected(line):
@@ -117,3 +129,11 @@ def test_failed_drive_still_brakes_and_propagates():
     with pytest.raises(OSError):
         run(motor, "-6 0.5")
     assert motor.calls[-1] == ("stop",)
+
+
+def test_named_pose_drives_then_brakes():
+    motor = RecordingMotor()
+    output, slept = run(motor, "close")
+    assert motor.calls[:2] == [("drive", 341), ("stop",)]
+    assert slept == [0.25]
+    assert output == ["moved B +1.0 V for 0.25 s, braked"]

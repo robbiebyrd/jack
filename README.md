@@ -1,8 +1,8 @@
 # jack
 
 Raspberry Pi + Waveshare Motor Driver HAT driving an animatronic head's mouth
-(motor B). `main.py` repeats motor B's `MOTOR_B_SEQUENCE` (−6 V for 0.5 s, −3 V
-for 1 s, 0 V for 2 s) with motor A off, and short-brakes both on exit. See `SPEC.md`.
+(motor B). `main.py` loops a mouth demo (close, relaxed open, briefly fully
+open) with motor A off, and short-brakes both on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 
@@ -36,6 +36,7 @@ for 10 s, systemd kills and restarts it.
 ssh -t 10.10.0.54 sudo systemctl stop jack   # free the HAT (brakes both motors)
 ssh -t 10.10.0.54 python3 /opt/jack/calibrate.py
 b> -4.5 0.8                                  # motor B at -4.5 V for 0.8 s, then brake
+b> close                                     # also: relax, open 0.5
 b> q
 ssh -t 10.10.0.54 sudo systemctl start jack  # resume the sequence
 ```

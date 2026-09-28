@@ -29,8 +29,8 @@ def test_cycle_is_well_inside_the_watchdog_timeout():
     assert cycle_s() * 2 < watchdog_s
 
 
-def test_cycle_is_three_and_a_half_seconds():
-    assert cycle_s() == pytest.approx(3.5)
+def test_demo_cycle_is_four_and_a_quarter_seconds():
+    assert cycle_s() == pytest.approx(4.25)
 
 
 def play_step(profiles, step):
@@ -38,14 +38,14 @@ def play_step(profiles, step):
         motor.drive(counts[step])
 
 
-def test_motor_b_steps_minus_six_minus_three_zero_while_motor_a_stays_off():
+def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_a_off():
     bus = RecordingBus()
-    profiles = main.build_profiles(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
-    (_, a_counts), (_, b_counts) = profiles
-    assert a_counts == [0] * 70
-    assert b_counts == [-2048] * 10 + [-1024] * 20 + [0] * 40
-
-    play_step(profiles, 0)
-    assert off_count(bus, MOTOR_A.pwm) == 0
-    assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (PWM_MAX_COUNT, 0)
-    assert off_count(bus, MOTOR_B.pwm) == 2048  # -6 V of 12 V
+    (_, a_counts), (_, b_counts) = main.build_profiles(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
+    assert b_counts == (
+        [341] * 5  # close: +1 V for 0.25 s
+        + [0] * 30  # rest 1.5 s
+        + [-683] * 10  # relax: -2 V for 0.5 s
+        + [0] * 30  # rest 1.5 s
+        + [-2048] * 10  # open fully: -6 V for 0.5 s
+    )
+    assert a_counts == [0] * len(b_counts)
