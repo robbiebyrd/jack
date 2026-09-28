@@ -1378,7 +1378,7 @@ git commit -m "Drive both HAT motor channels through a MotorGroup that brakes al
 - Create: `deploy/jack-update.sh`, `tests/test_jack_update.py`
 
 **Interfaces:**
-- Produces: `deploy/jack-update.sh`, run as `bash /opt/jack/deploy/jack-update.sh`. The env var `JACK_REPO_DIR` (default `/opt/jack`) lets tests point it at a temp checkout. It exits 0 when up to date or updated, and non-zero on git failure. It calls `systemctl restart jack.service` only when it changed the checkout.
+- Produces: `deploy/jack-update.sh`, run as `bash /opt/jack/deploy/jack-update.sh`. The env var `JACK_REPO_DIR` (default `/opt/jack`) lets tests point it at a temp checkout. It exits 0 when up to date or updated, and non-zero on git failure. It calls `systemctl try-restart jack.service` only when it changed the checkout.
 
 The tests use real git repos in `tmp_path`: a bare "origin", a "work" clone to make commits, and a "checkout" clone standing in for `/opt/jack`. They run the **checkout's own copy** of the script, as on the Pi. Only `systemctl` is replaced, with a shim on `PATH` that logs its arguments.
 
@@ -1481,14 +1481,14 @@ def test_new_commit_is_deployed_and_app_restarted_once(deployment):
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
     assert (deployment.checkout / "main.py").read_text() == "print('v2')\n"
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
 
 
 def test_second_run_after_deploy_does_not_restart_again(deployment):
     deployment.commit_and_push("main.py", "print('v2')\n")
     deployment.run_update()
     deployment.run_update()
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
 
 
 def test_local_edits_on_the_pi_are_discarded(deployment):
@@ -1507,7 +1507,7 @@ def test_force_pushed_history_is_followed(deployment):
     result = deployment.run_update()
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == rewritten
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
 
 
 def test_fetch_failure_leaves_checkout_and_app_untouched(deployment):
@@ -1527,7 +1527,7 @@ def test_commit_that_rewrites_the_update_script_completes_cleanly(deployment):
     result = deployment.run_update()
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -1561,7 +1561,7 @@ main() {
 
   echo "Deploying $target (was $current)"
   git reset --hard --quiet "origin/$branch"
-  systemctl restart "$service"
+  systemctl try-restart "$service"
 }
 
 main "$@"
@@ -1858,7 +1858,42 @@ ssh 10.10.0.54 'systemctl is-active jack jack-update.timer; journalctl -u jack -
 ```
 Expected: both `active`, and the startup line appears for this boot.
 
-- [ ] **Step 9: Verify the auto-update end to end** (Boss approves this push)
+- [ ] **Step 9: Stopped stays stopped**
+
+Boss runs: `! ssh -t 10.10.0.54 sudo systemctl stop jack`. Then push a trivial commit (Boss approves this push) and wait for `jack-update` to log `Deploying`:
+```bash
+ssh 10.10.0.54 'journalctl -u jack-update -n 5 --no-pager'
+```
+Then check that the stop was not overridden:
+```bash
+ssh 10.10.0.54 'systemctl is-active jack'
+```
+Expected: `inactive`, and the meter reads 0 V across both MA1/MA2 and MB1/MB2. Then: `! ssh -t 10.10.0.54 sudo systemctl start jack`.
+
+- [ ] **Step 10: Updater survives a failed fetch**
+
+First resolve GitHub's address on the Pi:
+```bash
+ssh 10.10.0.54 'getent ahostsv4 github.com'
+```
+Expected: an address inside GitHub's published range (see https://api.github.com/meta); on 2026-09-28 it resolved to 140.82.114.3, inside `140.82.112.0/20`. Then block that range temporarily:
+```bash
+ssh -t 10.10.0.54 'sudo ip route add blackhole 140.82.112.0/20'
+```
+Wait for at least one timer tick, then check the failure was logged and the timer kept firing:
+```bash
+ssh 10.10.0.54 'journalctl -u jack-update -n 10 --no-pager; systemctl list-timers jack-update.timer'
+```
+Expected: a failed run in the journal, and `jack-update.timer` still scheduled to fire again. Then remove the route and confirm the next run succeeds:
+```bash
+ssh -t 10.10.0.54 'sudo ip route del blackhole 140.82.112.0/20'
+```
+```bash
+ssh 10.10.0.54 'journalctl -u jack-update -n 5 --no-pager'
+```
+Expected: the next run completes without the earlier failure.
+
+- [ ] **Step 11: Verify the auto-update end to end** (Boss approves this push)
 
 Change the startup `print` in `main.py` to include `[deploy check]`, run `.venv/bin/pytest`, commit, and push to `main`. Then wait until the updater has run at least once more (at most about 60 s):
 ```bash
