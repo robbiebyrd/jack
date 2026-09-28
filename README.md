@@ -1,8 +1,8 @@
 # jack
 
 Raspberry Pi + Waveshare Motor Driver HAT driving an animatronic head's mouth
-(motor B). `main.py` loops a mouth demo (close, relaxed open, briefly fully
-open) with motor A off, and short-brakes both on exit. See `SPEC.md`.
+(motor B). `main.py` moves the mouth as if speaking, in random phrases, with
+motor A off, and short-brakes both on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 

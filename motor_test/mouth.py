@@ -8,6 +8,10 @@ motor, so fully open ramps up to it.
 
 Segment = tuple[float, float, float]
 
+# Playback step: the player sends one duty count per step, so every pose
+# duration must be a whole number of these.
+STEP_S = 0.05
+
 # How long fully open takes to ramp from 0 V to -6 V.
 OPEN_RAMP_S = 0.25
 

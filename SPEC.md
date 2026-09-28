@@ -63,13 +63,19 @@ prefer the closed and relaxed-open poses and keep fully open short.
 1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
    its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
    terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
-2. **Motor B (the mouth)** loops `MOUTH_DEMO`, a demo that stands in until
-   control inputs (audio, DMX, websockets) are wired in:
-   `CLOSE` (+1 V, 0.25 s), rest 1.5 s, `RELAX` (−2 V, 0.5 s), rest 1.5 s,
-   `open_fully(0.5)` (ramp 0 → −6 V over 0.25 s, then hold −6 V for
-   0.5 s): a 4.5 s cycle. The ramp exists because stepping straight to
-   −6 V strained the motor (Boss, 2026-09-28). "Rest" is 0 V (braked);
-   the mouth stays in the pose it last reached.
+2. **Motor B (the mouth)** imitates speaking until control inputs (audio,
+   DMX, websockets) are wired in. Each cycle plays a fresh random phrase from
+   `motor_test/speech.py`, at most 4.5 s long:
+   - 1–4 words of 1–3 syllables; 0.05–0.15 s between syllables, 0.1–0.3 s
+     between words, and a 0.5–1.5 s pause after the phrase.
+   - A syllable opens part way with −2 V for 0.15–0.4 s, then closes with
+     +0.5 V for 0.15 s (the gentle close that works from relaxed open).
+   - About 1 in 8 syllables is emphasised: a ramped full open (hold
+     0.15–0.3 s), then +1 V for 0.25 s.
+   - Every phrase ends closed. Durations are whole 50 ms steps.
+   `MOUTH_DEMO` (close, rest 1.5 s, relax, rest 1.5 s, ramped full open for
+   0.5 s; 4.5 s) remains available through `main.demo_cycle()` for checking
+   the mechanism.
 3. **Motor A** holds 0 V for the whole cycle.
 4. Repeat the cycle back-to-back, with no pause, until the process is
    stopped.
@@ -314,12 +320,17 @@ The app must come back on its own from any failure, without a human:
 - `motor_test/attempt_all.py`: `attempt_all(actions)` runs every action
   even if an earlier one raises, then re-raises the first failure. Used
   wherever braking must not be skipped.
-- `motor_test/smoke_test.py` (application): `run_profiles_loop(profiles,
-  step_s, sleep, on_cycle)` takes `(motor, counts)` pairs of equal length.
-  Step i drives every motor with its i-th count, then waits `step_s`; it
-  repeats forever, calls `on_cycle()` after each completed cycle, and
-  always stops every motor when the loop exits (exception or SIGTERM),
-  even if stopping one fails.
+- `motor_test/speech.py` (domain): `random_phrase(rng)` builds one
+  talking phrase from the calibrated poses (see "Smoke test behavior");
+  pass a seeded `random.Random` for repeatable output.
+- `motor_test/smoke_test.py` (application): `run_generated_loop(motors,
+  next_cycle, step_s, sleep, on_cycle)` asks `next_cycle()` for one count
+  list per motor each cycle and plays them in lockstep: step i drives
+  every motor with its i-th count, then waits `step_s`. It repeats forever,
+  calls `on_cycle()` after each completed cycle, and always stops every
+  motor when the loop exits (exception, unplayable cycle or SIGTERM), even
+  if stopping one fails. `run_profiles_loop(profiles, ...)` is the
+  fixed-profile form, checked before any motor is touched.
 - `motor_test/systemd_notify.py` (adapter): `notify(message)` sends one
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
@@ -347,6 +358,11 @@ The app must come back on its own from any failure, without a human:
   with `on_second` sending `WATCHDOG=1`. `run_profiles_loop` and
   `MOUTH_DEMO` are no longer used by `main.py`; they stay in the repo
   (Boss, 2026-09-28).
+- **Until the talk loop exists**, `main.py` plays random speech: it builds
+  one `Pca9685` and motors A and B and runs `run_generated_loop` with
+  `speaking_cycle(rng)` (motor A 0 V, motor B a fresh `random_phrase`),
+  pinging the watchdog after each phrase. `demo_cycle()` gives the fixed
+  `MOUTH_DEMO` instead.
 
 ## Testing
 
@@ -367,6 +383,8 @@ The app must come back on its own from any failure, without a human:
     recording fake `MotorOutput`, which checks our sequencing, not a
     mock's behavior.
   - `run_profiles_loop` calls `on_cycle` exactly once per completed cycle.
+  - `run_generated_loop` plays fresh counts each cycle, pings after each,
+    and brakes every motor on an unplayable cycle.
   - `notify` delivers the exact message to a real Unix datagram socket,
     does nothing without `NOTIFY_SOCKET`, and maps `@name` to an abstract
     address.
@@ -380,9 +398,15 @@ The app must come back on its own from any failure, without a human:
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.build_profiles` holds motor A at 0 V and plays the mouth demo
+  - `main.demo_cycle` holds motor A at 0 V and plays the mouth demo
     (+341 ×5, 0 ×30, −683 ×10, 0 ×30, the 5-step ramp, −2048 ×10) over a
     4.5 s cycle, inside the 10 s watchdog with two cycles to spare.
+  - `main.speaking_cycle` plays `random_phrase` on the mouth with motor A
+    at 0 V, and consecutive cycles differ.
+  - `random_phrase`, over 200 seeds: fits in 4.5 s, whole 50 ms steps,
+    voltages within −6…+1 V, every opening ended by a close, ends closed
+    then pauses, repeatable per seed, varied across seeds, and emphasis
+    stays occasional.
   - The mouth poses match the calibration table.
   - Envelope: digital silence reads −90 dBFS, a full-scale sine reads
     about −3.01 dBFS, and a step input rises with `ATTACK_S` and falls

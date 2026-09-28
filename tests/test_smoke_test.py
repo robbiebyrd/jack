@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.smoke_test import run_profiles_loop
+from motor_test.smoke_test import run_generated_loop, run_profiles_loop
 from tests.fakes import RecordingMotor
 
 
@@ -122,3 +122,42 @@ def test_unplayable_profiles_are_rejected_without_touching_any_motor(profiles):
     with pytest.raises(ValueError):
         run_profiles_loop(profiles, step_s=0.04, sleep=sleep, on_cycle=no_op)
     assert all(motor.calls == [] for motor, _ in profiles)
+
+
+def test_generated_loop_plays_fresh_counts_every_cycle():
+    motor_a, motor_b = RecordingMotor(), RecordingMotor()
+    cycles = iter([[[0], [5]], [[1, 2], [6, 7]]])
+    sleep, _ = sleep_that_raises_after(3)
+    with pytest.raises(LoopEnded):
+        run_generated_loop([motor_a, motor_b], lambda: next(cycles), step_s=0.04, sleep=sleep, on_cycle=no_op)
+    assert drives(motor_a) == [0, 1, 2]
+    assert drives(motor_b) == [5, 6, 7]
+
+
+def test_generated_loop_pings_after_each_generated_cycle():
+    motor = RecordingMotor()
+    events = []
+    cycles = iter([[[0]], [[1, 2]], [[3]]])
+
+    def sleep(seconds):
+        events.append("step")
+        if events.count("step") >= 4:  # the first step of the third cycle
+            raise LoopEnded
+
+    with pytest.raises(LoopEnded):
+        run_generated_loop([motor], lambda: next(cycles), step_s=0.04, sleep=sleep, on_cycle=lambda: events.append("cycle"))
+    assert events == ["step", "cycle", "step", "step", "cycle", "step"]
+
+
+def test_generated_loop_brakes_every_motor_when_a_cycle_is_unplayable():
+    motor_a, motor_b = RecordingMotor(), RecordingMotor()
+    sleep, _ = sleep_that_raises_after(10)
+    with pytest.raises(ValueError):
+        run_generated_loop([motor_a, motor_b], lambda: [[0, 1], [0]], step_s=0.04, sleep=sleep, on_cycle=no_op)
+    assert motor_a.calls == [("stop",)]
+    assert motor_b.calls == [("stop",)]
+
+
+def test_generated_loop_needs_a_motor():
+    with pytest.raises(ValueError):
+        run_generated_loop([], lambda: [], step_s=0.04, sleep=lambda seconds: None, on_cycle=no_op)

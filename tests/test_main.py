@@ -1,12 +1,12 @@
+import random
 import signal
 
 import pytest
 
 import main
-from motor_test.pca9685 import Pca9685
-from motor_test.ramp import PWM_MAX_COUNT
-from motor_test.tb6612_motor import MOTOR_A, MOTOR_B
-from tests.fakes import RecordingBus, off_count
+from motor_test.mouth import STEP_S
+from motor_test.ramp import segment_profile
+from motor_test.speech import MAX_PHRASE_S, random_phrase
 
 
 def test_sigterm_handler_raises_system_exit_so_cleanup_runs():
@@ -20,28 +20,18 @@ def test_watchdog_ping_reaches_systemd(notify_socket):
     assert notify_socket.recv(64) == b"WATCHDOG=1"
 
 
-def cycle_s():
-    return len(main.build_profiles(Pca9685(RecordingBus(), main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))[0][1]) * main.STEP_S
+WATCHDOG_S = 10  # WatchdogSec in deploy/jack.service
 
 
-def test_cycle_is_well_inside_the_watchdog_timeout():
-    watchdog_s = 10  # WatchdogSec in deploy/jack.service
-    assert cycle_s() * 2 < watchdog_s
-
-
-def test_demo_cycle_is_four_and_a_half_seconds():
-    assert cycle_s() == pytest.approx(4.5)
-
-
-def play_step(profiles, step):
-    for motor, counts in profiles:
-        motor.drive(counts[step])
+def test_demo_cycle_is_four_and_a_half_seconds_inside_the_watchdog():
+    motor_a, motor_b = main.demo_cycle()
+    assert len(motor_b) * STEP_S == pytest.approx(4.5)
+    assert len(motor_b) * STEP_S * 2 < WATCHDOG_S
 
 
 def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_a_off():
-    bus = RecordingBus()
-    (_, a_counts), (_, b_counts) = main.build_profiles(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
-    assert b_counts == (
+    motor_a, motor_b = main.demo_cycle()
+    assert motor_b == (
         [341] * 5  # close: +1 V for 0.25 s
         + [0] * 30  # rest 1.5 s
         + [-683] * 10  # relax: -2 V for 0.5 s
@@ -49,4 +39,20 @@ def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_a_off():
         + [-410, -819, -1229, -1638, -2048]  # open fully: ramp 0 -> -6 V over 0.25 s
         + [-2048] * 10  # then hold -6 V for 0.5 s
     )
-    assert a_counts == [0] * len(b_counts)
+    assert motor_a == [0] * len(motor_b)
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_speaking_cycle_plays_a_random_phrase_on_the_mouth_with_motor_a_off(seed):
+    motor_a, motor_b = main.speaking_cycle(random.Random(seed))
+    assert motor_b == segment_profile(random_phrase(random.Random(seed)), main.SUPPLY_VOLTS, STEP_S)
+    assert motor_a == [0] * len(motor_b)
+
+
+def test_speaking_phrases_ping_the_watchdog_in_time():
+    assert MAX_PHRASE_S * 2 < WATCHDOG_S
+
+
+def test_consecutive_speaking_cycles_differ():
+    rng = random.Random(1)
+    assert main.speaking_cycle(rng) != main.speaking_cycle(rng)
