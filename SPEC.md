@@ -43,12 +43,37 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
    is stopped.
 4. On SIGTERM or any exception, set motor B duty to 0 before exiting.
 
+## Self-recovery
+
+The app must come back on its own from any failure, without a human:
+
+- **Crash or any exit** (for example an I2C `OSError` from a loose HAT or a
+  brownout, a bug, or an unexpected exit 0): systemd restarts it after 5 s
+  (`Restart=always`, `RestartSec=5`). A restart re-initializes the
+  PCA9685.
+- **Never give up:** `StartLimitIntervalSec=0`, so repeated crashes (for
+  example I2C not ready yet at boot) keep retrying forever.
+- **Hang** (process alive but stuck, for example blocked on I2C):
+  the systemd watchdog. The unit is `Type=notify`, `NotifyAccess=main`,
+  `WatchdogSec=10`. The app sends `READY=1` once the motor is initialized
+  and `WATCHDOG=1` after every completed 2 s ramp cycle. If no ping
+  arrives within 10 s, systemd kills the app (SIGABRT) and restarts it.
+  A hung process can't stop its own motor, so the motor holds its last
+  duty until the restart (about 10 s + 5 s at worst).
+- **Deliberate stop** (`systemctl stop jack`) is not overridden: systemd
+  never restarts a unit it was told to stop.
+- Not covered: automatic rollback of a bad commit. Recovery from a broken
+  push is the next push.
+
 ## Code structure (hexagonal)
 
 - `motor_test/ramp.py` (domain, pure): `ramp_profile(peak_volts,
-  supply_volts, duration_s, steps)` returns the list of 12-bit duty
-  counts for an up-then-down triangle ramp. It raises `ValueError` if the
-  peak is above the supply or negative, or if the supply is not positive.
+  supply_volts, steps)` returns one cycle of 12-bit duty counts for a
+  0 → peak → 0 triangle ramp. The cycle starts at 0, peaks at
+  `steps // 2`, and omits the closing 0 so cycles chain seamlessly. It
+  raises `ValueError` for a non-positive supply, a peak outside
+  0..supply, or an odd or too-small step count. The peak is capped at
+  4095 (4096 would set the PCA9685 full-off bit).
 - `motor_test/ports.py`: the `MotorOutput` protocol, with `set_forward()`,
   `set_duty(count)` and `stop()`.
 - `motor_test/pca9685_motor.py` (adapter): `MotorOutput` for one
@@ -56,23 +81,37 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
   Waveshare's `PCA9685.py`, writing 12-bit counts directly (Waveshare's
   `setDutycycle` scales by 40 and never reaches the full 4096).
 - `motor_test/smoke_test.py` (application): `run_ramp_loop(motor,
-  counts, step_s, sleep)` sets direction, plays the counts cycle after
-  cycle forever, and always stops the motor when the loop exits (exception
-  or SIGTERM).
+  counts, step_s, sleep, on_cycle)` sets direction, plays the counts cycle
+  after cycle forever, calls `on_cycle()` after each completed cycle, and
+  always stops the motor when the loop exits (exception or SIGTERM).
+- `motor_test/systemd_notify.py` (adapter): `notify(message)` sends one
+  sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
+  It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
+  supports abstract-namespace sockets (`@` prefix).
 - `main.py`: wires the adapter and ramp, installs a SIGTERM handler that
-  raises `SystemExit` so the loop's cleanup runs, and starts the loop.
+  raises `SystemExit` so the loop's cleanup runs, sends `READY=1` after
+  motor init, and starts the loop with `on_cycle` sending `WATCHDOG=1`.
 
 ## Testing
 
 - pytest, run on the dev Mac (no hardware needed) for the domain and
   application layers:
-  - Ramp starts and ends at 0, peaks at 2048 for 6 V/12 V, is symmetric,
-    has the requested number of steps.
+  - Ramp starts at 0, peaks at 2048 for 6 V/12 V at index `steps // 2`,
+    is symmetric, and has the requested number of steps. A full-supply
+    peak caps at 4095.
   - Invalid inputs raise `ValueError`.
   - `run_ramp_loop` sets forward before driving, plays every count in
     order, repeats the cycle, and stops the motor when interrupted
     (the test's `sleep` raises after N steps to end the loop). This uses a recording fake
     `MotorOutput`, which checks our sequencing, not a mock's behavior.
+  - `run_ramp_loop` calls `on_cycle` exactly once per completed cycle.
+  - `notify` delivers the exact message to a real Unix datagram socket,
+    does nothing without `NOTIFY_SOCKET`, and maps `@name` to an abstract
+    address.
+  - `jack.service` declares the self-recovery settings above.
+- Self-recovery is verified on the Pi: `kill -9` (crash), `kill -STOP`
+  (hang, so the watchdog fires), and a reboot, each followed by the app
+  running again with no human action.
 - The PCA9685 adapter is verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MB1/MB2 with a meter.
 
@@ -85,7 +124,7 @@ and are not tied to any login session or human user.
   `https://github.com/robbiebyrd/jack.git` (public, no credentials).
 - **`jack.service`:** runs `/usr/bin/python3 /opt/jack/main.py` as the
   dedicated system account `jack` (no home, nologin shell, only in group
-  `i2c`). `Restart=on-failure`, `WantedBy=multi-user.target`.
+  `i2c`). Self-recovery settings as above; `WantedBy=multi-user.target`.
 - **`jack-update.service` + `jack-update.timer`:** runs as root every 60 s
   (`OnBootSec=60`, `OnUnitActiveSec=60`). Executes
   `/opt/jack/deploy/jack-update.sh`.

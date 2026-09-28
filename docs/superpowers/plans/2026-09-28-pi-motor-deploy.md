@@ -4,7 +4,7 @@
 
 **Goal:** Loop a 0 → 6 V → 0 V ramp on motor B of the Waveshare Motor Driver HAT from a boot-time system service on the Pi, and redeploy automatically within about 60 s of a push to `main`.
 
-**Architecture:** Hexagonal Python app. A pure domain module (`ramp.py`) computes duty counts, a `MotorOutput` port has a PCA9685 adapter, a small application loop (`smoke_test.py`) plays the ramp, and `main.py` wires them together. Deployment is plain systemd: an app service running as the `jack` system user, plus a root timer that runs a git polling script.
+**Architecture:** Hexagonal Python app. A pure domain module (`ramp.py`) computes duty counts, a `MotorOutput` port has a PCA9685 adapter, a small application loop (`smoke_test.py`) plays the ramp, an sd_notify adapter pings the systemd watchdog, and `main.py` wires them together. Deployment is plain systemd: a self-recovering app service (`Restart=always`, watchdog) running as the `jack` system user, plus a root timer that runs a git polling script.
 
 **Tech Stack:** Python 3.13 (Pi: Debian 13 trixie, aarch64), smbus2 0.4.3 (apt `python3-smbus2` on the Pi), pytest (dev only, on the Mac), bash, git, systemd.
 
@@ -17,6 +17,7 @@
 - VIN = 12 V. Peak = 6 V, which is count 2048 of 4096.
 - Cycle: 2 s total (1 s up, 1 s down), 50 steps of 40 ms, repeated back-to-back with no pause.
 - On SIGTERM or any exception, motor B duty goes to 0 before exit.
+- Self-recovery: `Type=notify`, `NotifyAccess=main`, `WatchdogSec=10`, `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`. Send `READY=1` after motor init and `WATCHDOG=1` after every completed cycle.
 - Checkout lives at `/opt/jack`, owned by root, cloned from `https://github.com/robbiebyrd/jack.git`.
 - App runs as the system user `jack` (no home, `/usr/sbin/nologin`, member of `i2c`), not tied to any login.
 - The updater runs as root every 60 s (`OnBootSec=60`, `OnUnitActiveSec=60`). It uses `git reset --hard origin/main`, and local Pi edits are discarded.
@@ -26,10 +27,10 @@
 ## Review Focus
 
 1. **Peak equal to supply:** a 4096 count would set the PCA9685 "full off" bit and turn the motor *off*. Counts must cap at 4095. Covered in Task 1 and Task 3.
-2. **SIGTERM during a sleep** (`systemctl stop` or a deploy restart): the motor must reach duty 0 before the process exits. Covered in Task 2 and Task 4.
-3. **`git fetch` failure** (network down, GitHub unreachable): the updater exits non-zero, leaves the checkout alone, and does not restart the app. Covered in Task 5.
-4. **Remote history rewritten** (force-push) or a tracked file edited by hand on the Pi: the Pi still converges exactly to `origin/main`. Covered in Task 5.
-5. **A commit that changes `jack-update.sh` itself** while the running script is being rewritten by `git reset`: the run completes normally and restarts once. Covered in Task 5.
+2. **SIGTERM during a sleep** (`systemctl stop` or a deploy restart): the motor must reach duty 0 before the process exits. Covered in Task 2 and Task 5.
+3. **`git fetch` failure** (network down, GitHub unreachable): the updater exits non-zero, leaves the checkout alone, and does not restart the app. Covered in Task 6.
+4. **Remote history rewritten** (force-push) or a tracked file edited by hand on the Pi: the Pi still converges exactly to `origin/main`. Covered in Task 6.
+5. **A commit that changes `jack-update.sh` itself** while the running script is being rewritten by `git reset`: the run completes normally and restarts once. Covered in Task 6.
 
 ---
 
@@ -42,13 +43,14 @@
 | `motor_test/ports.py` | Port: `MotorOutput` protocol |
 | `motor_test/smoke_test.py` | Application: play a ramp cycle forever, always stop the motor |
 | `motor_test/pca9685_motor.py` | Adapter: one TB6612FNG channel through the PCA9685 over I2C |
+| `motor_test/systemd_notify.py` | Adapter: send sd_notify messages (READY, WATCHDOG) to systemd |
 | `main.py` | Composition root: constants, SIGTERM handler, wiring |
 | `deploy/jack-update.sh` | Poll origin/main, reset, and restart the app on change |
 | `deploy/jack.service` | App system unit |
 | `deploy/jack-update.service` | Oneshot unit that runs the update script |
 | `deploy/jack-update.timer` | Runs the updater every 60 s |
 | `deploy/install.sh` | One-time root setup on the Pi |
-| `tests/test_ramp.py`, `tests/test_smoke_test.py`, `tests/test_pca9685_motor.py`, `tests/test_main.py`, `tests/test_jack_update.py` | Tests |
+| `tests/test_ramp.py`, `tests/test_smoke_test.py`, `tests/test_pca9685_motor.py`, `tests/test_systemd_notify.py`, `tests/test_main.py`, `tests/test_jack_update.py`, `tests/test_units.py` | Tests |
 | `pyproject.toml` | pytest config |
 | `requirements-dev.txt` | Dev-only pins (pytest, smbus2) |
 | `README.md` | Install, logs, how to stop |
@@ -59,7 +61,7 @@
 
 **Files:**
 - Create: `pyproject.toml`, `requirements-dev.txt`, `motor_test/__init__.py`, `motor_test/ramp.py`, `tests/test_ramp.py`
-- Modify: `.gitignore`, `SPEC.md`
+- Modify: `.gitignore`
 
 **Interfaces:**
 - Produces: `motor_test.ramp.PWM_RESOLUTION = 4096`, `motor_test.ramp.PWM_MAX_COUNT = 4095`, `ramp_profile(peak_volts: float, supply_volts: float, steps: int) -> list[int]`
@@ -181,29 +183,10 @@ def ramp_profile(peak_volts: float, supply_volts: float, steps: int) -> list[int
 Run: `.venv/bin/pytest tests/test_ramp.py -v`
 Expected: all PASS, with no warnings.
 
-- [ ] **Step 6: Bring `SPEC.md` in line with the signature**
-
-In `SPEC.md`, replace the `ramp_profile` bullet under "Code structure" with:
-```
-- `motor_test/ramp.py` (domain, pure): `ramp_profile(peak_volts,
-  supply_volts, steps)` returns one cycle of 12-bit duty counts for a
-  0 → peak → 0 triangle ramp. The cycle starts at 0, peaks at
-  `steps // 2`, and omits the closing 0 so cycles chain seamlessly. It
-  raises `ValueError` for a non-positive supply, a peak outside
-  0..supply, or an odd or too-small step count. The peak is capped at
-  4095 (4096 would set the PCA9685 full-off bit).
-```
-In the "Testing" section, replace the ramp line with:
-```
-  - Ramp starts at 0, peaks at 2048 for 6 V/12 V at index `steps // 2`,
-    is symmetric, and has the requested number of steps. A full-supply
-    peak caps at 4095.
-```
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add .gitignore pyproject.toml requirements-dev.txt motor_test/__init__.py motor_test/ramp.py tests/test_ramp.py SPEC.md
+git add .gitignore pyproject.toml requirements-dev.txt motor_test/__init__.py motor_test/ramp.py tests/test_ramp.py
 git commit -m "Add triangle ramp domain with pytest tooling"
 ```
 
@@ -216,7 +199,7 @@ git commit -m "Add triangle ramp domain with pytest tooling"
 
 **Interfaces:**
 - Consumes: nothing from Task 1 at runtime. Counts are passed in.
-- Produces: `motor_test.ports.MotorOutput` (Protocol with `set_forward() -> None`, `set_duty(count: int) -> None`, `stop() -> None`) and `motor_test.smoke_test.run_ramp_loop(motor: MotorOutput, counts: Sequence[int], step_s: float, sleep: Callable[[float], None]) -> None`, which never returns normally.
+- Produces: `motor_test.ports.MotorOutput` (Protocol with `set_forward() -> None`, `set_duty(count: int) -> None`, `stop() -> None`) and `motor_test.smoke_test.run_ramp_loop(motor: MotorOutput, counts: Sequence[int], step_s: float, sleep: Callable[[float], None], on_cycle: Callable[[], None]) -> None`, which never returns normally. `on_cycle` is called once after each completed cycle (main.py uses it for the watchdog ping).
 
 - [ ] **Step 1: Write the failing tests** in `tests/test_smoke_test.py`
 
@@ -246,6 +229,10 @@ class LoopEnded(Exception):
     pass
 
 
+def no_op():
+    pass
+
+
 def sleep_that_raises_after(n, exception=LoopEnded):
     """Return a sleep function and its log. The nth call raises `exception`."""
     slept = []
@@ -262,7 +249,7 @@ def test_sets_forward_before_driving():
     motor = RecordingMotor()
     sleep, _ = sleep_that_raises_after(1)
     with pytest.raises(LoopEnded):
-        run_ramp_loop(motor, [0, 10], step_s=0.04, sleep=sleep)
+        run_ramp_loop(motor, [0, 10], step_s=0.04, sleep=sleep, on_cycle=no_op)
     assert motor.calls[0] == ("forward",)
     assert motor.calls[1] == ("duty", 0)
 
@@ -272,7 +259,7 @@ def test_plays_counts_in_order_and_repeats_the_cycle():
     counts = [0, 5, 9, 5]
     sleep, _ = sleep_that_raises_after(len(counts) * 2)
     with pytest.raises(LoopEnded):
-        run_ramp_loop(motor, counts, step_s=0.04, sleep=sleep)
+        run_ramp_loop(motor, counts, step_s=0.04, sleep=sleep, on_cycle=no_op)
     duties = [call[1] for call in motor.calls if call[0] == "duty"]
     assert duties == counts * 2
 
@@ -281,7 +268,7 @@ def test_waits_one_step_after_each_count():
     motor = RecordingMotor()
     sleep, slept = sleep_that_raises_after(6)
     with pytest.raises(LoopEnded):
-        run_ramp_loop(motor, [0, 5, 9], step_s=0.04, sleep=sleep)
+        run_ramp_loop(motor, [0, 5, 9], step_s=0.04, sleep=sleep, on_cycle=no_op)
     assert slept == [0.04] * 6
 
 
@@ -289,7 +276,7 @@ def test_stops_motor_when_loop_is_interrupted_by_an_error():
     motor = RecordingMotor()
     sleep, _ = sleep_that_raises_after(3)
     with pytest.raises(LoopEnded):
-        run_ramp_loop(motor, [0, 5, 9], step_s=0.04, sleep=sleep)
+        run_ramp_loop(motor, [0, 5, 9], step_s=0.04, sleep=sleep, on_cycle=no_op)
     assert motor.calls[-1] == ("stop",)
 
 
@@ -297,15 +284,29 @@ def test_stops_motor_on_system_exit_from_sigterm():
     motor = RecordingMotor()
     sleep, _ = sleep_that_raises_after(2, exception=SystemExit(0))
     with pytest.raises(SystemExit):
-        run_ramp_loop(motor, [0, 5, 9], step_s=0.04, sleep=sleep)
+        run_ramp_loop(motor, [0, 5, 9], step_s=0.04, sleep=sleep, on_cycle=no_op)
     assert motor.calls[-1] == ("stop",)
+
+
+def test_on_cycle_runs_once_after_each_completed_cycle():
+    motor = RecordingMotor()
+    events = []
+
+    def sleep(seconds):
+        events.append("step")
+        if len(events) >= 7:  # 2 full cycles of 3 steps, plus 1 on_cycle marker per cycle
+            raise LoopEnded
+
+    with pytest.raises(LoopEnded):
+        run_ramp_loop(motor, [0, 5, 9], step_s=0.04, sleep=sleep, on_cycle=lambda: events.append("cycle"))
+    assert events == ["step", "step", "step", "cycle", "step", "step", "step"]
 
 
 def test_empty_cycle_is_rejected_without_touching_the_motor():
     motor = RecordingMotor()
     sleep, _ = sleep_that_raises_after(1)
     with pytest.raises(ValueError):
-        run_ramp_loop(motor, [], step_s=0.04, sleep=sleep)
+        run_ramp_loop(motor, [], step_s=0.04, sleep=sleep, on_cycle=no_op)
     assert motor.calls == []
 ```
 
@@ -347,8 +348,11 @@ def run_ramp_loop(
     counts: Sequence[int],
     step_s: float,
     sleep: Callable[[float], None],
+    on_cycle: Callable[[], None],
 ) -> None:
     """Drive `motor` forward through `counts` cycle after cycle, forever.
+
+    `on_cycle` runs after every completed cycle, which proves the loop is alive.
 
     The motor is always stopped on the way out, whether the loop ends through
     an error, KeyboardInterrupt, or SystemExit raised by a SIGTERM handler.
@@ -362,6 +366,7 @@ def run_ramp_loop(
             for count in counts:
                 motor.set_duty(count)
                 sleep(step_s)
+            on_cycle()
     finally:
         motor.stop()
 ```
@@ -589,19 +594,128 @@ git commit -m "Add PCA9685 adapter for a Motor Driver HAT channel"
 
 ---
 
-### Task 4: main.py composition root
+### Task 4: systemd notify adapter
+
+**Files:**
+- Create: `motor_test/systemd_notify.py`, `tests/test_systemd_notify.py`
+
+**Interfaces:**
+- Produces: `motor_test.systemd_notify.notify(message: str) -> None`, which reads `NOTIFY_SOCKET` from the environment on each call and does nothing if it is unset. Also `socket_address(path: str) -> str`, which maps a leading `@` to `\0` (Linux abstract namespace).
+
+The sd_notify protocol: send the message as one datagram on an `AF_UNIX` `SOCK_DGRAM` socket to the path in `$NOTIFY_SOCKET`. The tests use a real socket in a short temp dir, because macOS limits Unix socket paths to about 104 bytes and pytest's `tmp_path` can exceed that.
+
+- [ ] **Step 1: Write the failing tests** in `tests/test_systemd_notify.py`
+
+```python
+import os
+import shutil
+import socket
+import tempfile
+
+import pytest
+
+from motor_test.systemd_notify import notify, socket_address
+
+
+@pytest.fixture
+def notify_socket(monkeypatch):
+    directory = tempfile.mkdtemp()
+    path = os.path.join(directory, "notify.sock")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    server.bind(path)
+    server.settimeout(1)
+    monkeypatch.setenv("NOTIFY_SOCKET", path)
+    yield server
+    server.close()
+    shutil.rmtree(directory)
+
+
+def test_notify_sends_message_as_one_datagram(notify_socket):
+    notify("READY=1")
+    assert notify_socket.recv(64) == b"READY=1"
+
+
+def test_notify_sends_each_watchdog_ping(notify_socket):
+    notify("WATCHDOG=1")
+    notify("WATCHDOG=1")
+    assert notify_socket.recv(64) == b"WATCHDOG=1"
+    assert notify_socket.recv(64) == b"WATCHDOG=1"
+
+
+def test_notify_does_nothing_outside_systemd(monkeypatch):
+    monkeypatch.delenv("NOTIFY_SOCKET", raising=False)
+    notify("READY=1")  # must not raise
+
+
+def test_at_prefix_maps_to_abstract_namespace():
+    assert socket_address("@/org/freedesktop/systemd1/notify") == "\0/org/freedesktop/systemd1/notify"
+
+
+def test_filesystem_path_is_used_as_is():
+    assert socket_address("/run/systemd/notify") == "/run/systemd/notify"
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `.venv/bin/pytest tests/test_systemd_notify.py -v`
+Expected: collection error `ModuleNotFoundError: No module named 'motor_test.systemd_notify'`
+
+- [ ] **Step 3: Implement** `motor_test/systemd_notify.py`
+
+```python
+"""Minimal sd_notify client so systemd knows the app is ready and still alive."""
+
+import os
+import socket
+
+
+def socket_address(path: str) -> str:
+    """Translate systemd's `@name` notation into a Linux abstract socket address."""
+    if path.startswith("@"):
+        return "\0" + path[1:]
+    return path
+
+
+def notify(message: str) -> None:
+    """Send one sd_notify message. Does nothing when not started by systemd."""
+    path = os.environ.get("NOTIFY_SOCKET")
+    if not path:
+        return
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+        sock.sendto(message.encode(), socket_address(path))
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `.venv/bin/pytest -v`
+Expected: all PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add motor_test/systemd_notify.py tests/test_systemd_notify.py
+git commit -m "Add sd_notify adapter for systemd readiness and watchdog pings"
+```
+
+---
+
+### Task 5: main.py composition root
 
 **Files:**
 - Create: `main.py`, `tests/test_main.py`
 
 **Interfaces:**
-- Consumes: `ramp_profile`, `run_ramp_loop`, `Pca9685Motor`, `smbus2.SMBus`
-- Produces: `main.exit_on_sigterm(signum, frame) -> NoReturn` and `main.main() -> None`
+- Consumes: `ramp_profile`, `run_ramp_loop`, `Pca9685Motor`, `notify`, `smbus2.SMBus`
+- Produces: `main.exit_on_sigterm(signum, frame) -> NoReturn`, `main.ping_watchdog() -> None`, and `main.main() -> None`
 
 - [ ] **Step 1: Write the failing tests** in `tests/test_main.py`
 
 ```python
+import os
+import shutil
 import signal
+import socket
+import tempfile
 
 import pytest
 
@@ -612,6 +726,23 @@ def test_sigterm_handler_raises_system_exit_so_cleanup_runs():
     with pytest.raises(SystemExit) as exc_info:
         main.exit_on_sigterm(signal.SIGTERM, None)
     assert exc_info.value.code == 0
+
+
+def test_watchdog_ping_reaches_systemd(monkeypatch):
+    directory = tempfile.mkdtemp()
+    path = os.path.join(directory, "notify.sock")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as server:
+        server.bind(path)
+        server.settimeout(1)
+        monkeypatch.setenv("NOTIFY_SOCKET", path)
+        main.ping_watchdog()
+        assert server.recv(64) == b"WATCHDOG=1"
+    shutil.rmtree(directory)
+
+
+def test_cycle_is_well_inside_the_watchdog_timeout():
+    watchdog_s = 10  # WatchdogSec in deploy/jack.service
+    assert main.CYCLE_S * 2 < watchdog_s
 
 
 def test_configured_ramp_peaks_at_six_volts_over_a_two_second_cycle():
@@ -638,6 +769,7 @@ from smbus2 import SMBus
 from motor_test.pca9685_motor import Pca9685Motor
 from motor_test.ramp import ramp_profile
 from motor_test.smoke_test import run_ramp_loop
+from motor_test.systemd_notify import notify
 
 I2C_BUS = 1
 PCA9685_ADDRESS = 0x40
@@ -657,6 +789,10 @@ def exit_on_sigterm(signum, frame):
     raise SystemExit(0)
 
 
+def ping_watchdog():
+    notify("WATCHDOG=1")
+
+
 def main():
     signal.signal(signal.SIGTERM, exit_on_sigterm)
     counts = ramp_profile(PEAK_VOLTS, SUPPLY_VOLTS, STEPS_PER_CYCLE)
@@ -670,7 +806,8 @@ def main():
             PWM_FREQ_HZ,
         )
         print(f"Looping motor B 0 -> {PEAK_VOLTS} V -> 0 every {CYCLE_S} s on {SUPPLY_VOLTS} V supply")
-        run_ramp_loop(motor, counts, CYCLE_S / STEPS_PER_CYCLE, time.sleep)
+        notify("READY=1")
+        run_ramp_loop(motor, counts, CYCLE_S / STEPS_PER_CYCLE, time.sleep, ping_watchdog)
 
 
 if __name__ == "__main__":
@@ -686,12 +823,12 @@ Expected: all PASS.
 
 ```bash
 git add main.py tests/test_main.py
-git commit -m "Add main.py wiring motor B ramp loop with SIGTERM cleanup"
+git commit -m "Add main.py wiring motor B ramp loop with SIGTERM cleanup and watchdog pings"
 ```
 
 ---
 
-### Task 5: Update script
+### Task 6: Update script
 
 **Files:**
 - Create: `deploy/jack-update.sh`, `tests/test_jack_update.py`
@@ -901,39 +1038,82 @@ git commit -m "Add git polling update script with real-git tests"
 
 ---
 
-### Task 6: systemd units, installer, and README
+### Task 7: systemd units, installer, and README
 
 **Files:**
-- Create: `deploy/jack.service`, `deploy/jack-update.service`, `deploy/jack-update.timer`, `deploy/install.sh`, `README.md`
+- Create: `deploy/jack.service`, `deploy/jack-update.service`, `deploy/jack-update.timer`, `deploy/install.sh`, `README.md`, `tests/test_units.py`
 
 **Interfaces:**
 - Consumes: `/opt/jack/main.py` (Task 4), `/opt/jack/deploy/jack-update.sh` (Task 5)
 - Produces: the unit names `jack.service`, `jack-update.service`, `jack-update.timer`
 
-These are verified on the Pi in Task 7 with `systemd-analyze verify` and real runs. The Mac has no systemd.
+These are verified on the Pi in Task 8 with `systemd-analyze verify` and real failure drills. The Mac has no systemd, so `tests/test_units.py` pins the self-recovery settings in the unit file.
 
-- [ ] **Step 1: Create** `deploy/jack.service`
+- [ ] **Step 1: Write the failing test** `tests/test_units.py`
+
+```python
+import configparser
+from pathlib import Path
+
+UNIT = Path(__file__).resolve().parent.parent / "deploy" / "jack.service"
+
+
+def load_unit():
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.optionxform = str  # systemd keys are case-sensitive
+    parser.read(UNIT)
+    return parser
+
+
+def test_app_restarts_after_any_exit_and_never_gives_up():
+    unit = load_unit()
+    assert unit["Service"]["Restart"] == "always"
+    assert unit["Service"]["RestartSec"] == "5"
+    assert unit["Unit"]["StartLimitIntervalSec"] == "0"
+
+
+def test_app_is_supervised_by_the_systemd_watchdog():
+    unit = load_unit()
+    assert unit["Service"]["Type"] == "notify"
+    assert unit["Service"]["NotifyAccess"] == "main"
+    assert unit["Service"]["WatchdogSec"] == "10"
+
+
+def test_app_runs_as_jack_at_boot_without_login():
+    unit = load_unit()
+    assert unit["Service"]["User"] == "jack"
+    assert unit["Service"]["SupplementaryGroups"] == "i2c"
+    assert unit["Install"]["WantedBy"] == "multi-user.target"
+```
+
+Run: `.venv/bin/pytest tests/test_units.py -v`
+Expected: FAIL. `configparser` reads the missing file as empty, so the tests fail with `KeyError: 'Service'` or `KeyError: 'Unit'`.
+
+- [ ] **Step 2: Create** `deploy/jack.service`
 
 ```ini
 [Unit]
 Description=Jack motor HAT application
+StartLimitIntervalSec=0
 
 [Service]
-Type=simple
+Type=notify
+NotifyAccess=main
+WatchdogSec=10
 User=jack
 Group=jack
 SupplementaryGroups=i2c
 WorkingDirectory=/opt/jack
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/python3 /opt/jack/main.py
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-- [ ] **Step 2: Create** `deploy/jack-update.service`
+- [ ] **Step 3: Create** `deploy/jack-update.service`
 
 ```ini
 [Unit]
@@ -946,7 +1126,7 @@ Type=oneshot
 ExecStart=/bin/bash /opt/jack/deploy/jack-update.sh
 ```
 
-- [ ] **Step 3: Create** `deploy/jack-update.timer`
+- [ ] **Step 4: Create** `deploy/jack-update.timer`
 
 ```ini
 [Unit]
@@ -960,7 +1140,7 @@ OnUnitActiveSec=60
 WantedBy=timers.target
 ```
 
-- [ ] **Step 4: Create** `deploy/install.sh`
+- [ ] **Step 5: Create** `deploy/install.sh`
 
 ```bash
 #!/bin/bash
@@ -1002,12 +1182,12 @@ systemctl enable --now jack.service jack-update.timer
 echo "Installed. If /dev/i2c-1 is missing, reboot: sudo reboot"
 ```
 
-- [ ] **Step 5: Syntax-check both scripts**
+- [ ] **Step 6: Syntax-check both scripts**
 
 Run: `bash -n deploy/install.sh && bash -n deploy/jack-update.sh && echo OK`
 Expected: `OK`
 
-- [ ] **Step 6: Create** `README.md`
+- [ ] **Step 7: Create** `README.md`
 
 ````markdown
 # jack
@@ -1032,6 +1212,12 @@ in `/opt/jack` and restarts `jack.service`. Edits made on the Pi are discarded.
 Changes to the unit files in `deploy/` are not reinstalled automatically.
 Re-run `install.sh` for those.
 
+## Self-recovery
+
+`jack.service` restarts after any exit (`Restart=always`, 5 s delay, never
+gives up) and is watched by the systemd watchdog. If the loop stops pinging
+for 10 s, systemd kills and restarts it.
+
 ## Operate
 
 ```bash
@@ -1048,21 +1234,21 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 ```
 ````
 
-- [ ] **Step 7: Run the full test suite**
+- [ ] **Step 8: Run the full test suite**
 
 Run: `.venv/bin/pytest -v`
-Expected: all PASS.
+Expected: all PASS, including `tests/test_units.py`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add deploy/jack.service deploy/jack-update.service deploy/jack-update.timer deploy/install.sh README.md
+git add tests/test_units.py deploy/jack.service deploy/jack-update.service deploy/jack-update.timer deploy/install.sh README.md
 git commit -m "Add systemd units, Pi installer, and README"
 ```
 
 ---
 
-### Task 7: Deploy to the Pi and verify on hardware
+### Task 8: Deploy to the Pi and verify on hardware
 
 **Requires Boss:** approval to merge to `main` and push, and running the `sudo` step.
 
@@ -1101,7 +1287,25 @@ Expected: `Looping motor B 0 -> 6.0 V -> 0 every 2.0 s on 12.0 V supply` and no 
 Boss runs: `! ssh -t 10.10.0.54 sudo systemctl stop jack`
 Expected: `journalctl -u jack` shows a clean stop with no traceback, and the meter reads 0 V. Then `! ssh -t 10.10.0.54 sudo systemctl start jack`.
 
-- [ ] **Step 6: Verify survival across reboot without login**
+- [ ] **Step 6: Crash drill (restart after being killed)**
+
+Boss runs: `! ssh -t 10.10.0.54 'sudo kill -9 $(systemctl show -p MainPID --value jack)'`
+Wait 10 s, then:
+```bash
+ssh 10.10.0.54 'systemctl is-active jack; systemctl show -p NRestarts jack; journalctl -u jack -n 10 --no-pager'
+```
+Expected: `active`, `NRestarts` went up by 1, and the journal shows the kill followed by a new startup line.
+
+- [ ] **Step 7: Hang drill (watchdog fires)**
+
+Boss runs: `! ssh -t 10.10.0.54 'sudo kill -STOP $(systemctl show -p MainPID --value jack)'`
+Wait 20 s, then:
+```bash
+ssh 10.10.0.54 'systemctl is-active jack; systemctl show -p NRestarts jack; journalctl -u jack -n 15 --no-pager'
+```
+Expected: the journal shows `Watchdog timeout` for `jack.service`, followed by a restart and a new startup line. `NRestarts` went up by 1, and the service is `active`.
+
+- [ ] **Step 8: Verify survival across reboot without login**
 
 Boss runs: `! ssh -t 10.10.0.54 sudo reboot`. After it comes back (without logging in on the console):
 ```bash
@@ -1109,7 +1313,7 @@ ssh 10.10.0.54 'systemctl is-active jack jack-update.timer; journalctl -u jack -
 ```
 Expected: both `active`, and the startup line appears for this boot.
 
-- [ ] **Step 7: Verify the auto-update end to end** (Boss approves this push)
+- [ ] **Step 9: Verify the auto-update end to end** (Boss approves this push)
 
 Change the startup `print` in `main.py` to include `[deploy check]`, run `.venv/bin/pytest`, commit, and push to `main`. Then wait until the updater has run at least once more (at most about 60 s):
 ```bash
