@@ -41,10 +41,8 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 2. **Motor A** ramps its average voltage 0 V → +6 V over 1 s, then
    +6 V → 0 V over 1 s: measured MA1 − MA2 goes 0 → +6 V → 0.
    - With 12 V supply, 6 V = 50% duty = PCA9685 count 2048 of 4096.
-3. **Motor B** holds +3 V for the first 1 s, then switches straight to
-   −3 V for the second 1 s (no ramp): measured MB1 − MB2 is a ±3 V square
-   wave. It switches to −3 V at the step where motor A peaks at +6 V.
-   - With 12 V supply, 3 V = 25% duty = count 1024; −3 V is 1024 backward.
+3. **Motor B** holds a constant −6 V (backward at 50% duty, count 2048):
+   measured MB1 − MB2 stays at −6 V.
 4. Repeat the 2 s cycle back-to-back, with no pause, until the process
    is stopped.
 5. On SIGTERM or any exception, **short-brake** both motors before exiting:
@@ -80,8 +78,9 @@ The app must come back on its own from any failure, without a human:
   steps)` is one cycle of a 0 → peak → 0 triangle that starts at 0, peaks
   at `steps // 2`, and omits the closing 0 so cycles chain seamlessly.
   `square_profile(high_volts, low_volts, supply_volts, steps)` holds
-  `high_volts` for the first half and `low_volts` for the second. Both
-  raise `ValueError` for a non-positive supply, a voltage outside the
+  `high_volts` for the first half and `low_volts` for the second.
+  `constant_profile(volts, supply_volts, steps)` holds `volts` throughout.
+  All three raise `ValueError` for a non-positive supply, a voltage outside the
   supply range, or an odd or too-small step count. Magnitudes cap at 4095
   (4096 would set the PCA9685 full-off bit).
 - `motor_test/ports.py`: the `MotorOutput` protocol, with
@@ -116,7 +115,7 @@ The app must come back on its own from any failure, without a human:
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
 - `main.py`: builds one `Pca9685`, pairs motor A with its ramp and motor B
-  with its square wave (`build_profiles`), wires them to the profile loop,
+  with its constant −6 V (`build_profiles`), wires them to the profile loop,
   installs a SIGTERM handler that
   raises `SystemExit` so the loop's cleanup runs, sends `READY=1` after
   motor init, and starts the loop with `on_cycle` sending `WATCHDOG=1`.
@@ -128,7 +127,8 @@ The app must come back on its own from any failure, without a human:
   - Ramp starts at 0, peaks at 2048 for 6 V/12 V at index `steps // 2`,
     is symmetric, and has the requested number of steps. A full-supply
     peak caps at 4095. Square is +1024 for the first half and −1024 for
-    the second for ±3 V/12 V, and caps at ±4095.
+    the second for ±3 V/12 V, and caps at ±4095. Constant −6 V/12 V is
+    −2048 at every step.
   - Invalid inputs raise `ValueError`.
   - `run_profiles_loop` drives each motor with its own profile in
     lockstep, repeats the cycle, stops every motor when interrupted
@@ -150,8 +150,8 @@ The app must come back on its own from any failure, without a human:
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.build_profiles` puts motor A at +6 V and motor B at −3 V at the
-    half-cycle.
+  - `main.build_profiles` puts motor A at +6 V at the half-cycle and holds
+    motor B at −6 V at every step.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.

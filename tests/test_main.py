@@ -34,17 +34,15 @@ def play_step(profiles, step):
         motor.drive(counts[step])
 
 
-def test_motor_a_ramps_to_plus_six_while_motor_b_squares_between_plus_and_minus_three():
+def test_motor_a_ramps_to_plus_six_while_motor_b_holds_minus_six():
     bus = RecordingBus()
     profiles = main.build_profiles(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
 
-    play_step(profiles, 0)
-    assert off_count(bus, MOTOR_A.pwm) == 0
-    assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (0, PWM_MAX_COUNT)
-    assert off_count(bus, MOTOR_B.pwm) == 1024  # +3 V of 12 V
+    for step in (0, main.STEPS_PER_CYCLE // 2, main.STEPS_PER_CYCLE - 1):
+        play_step(profiles, step)
+        assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (PWM_MAX_COUNT, 0)
+        assert off_count(bus, MOTOR_B.pwm) == 2048  # -6 V of 12 V
 
     play_step(profiles, main.STEPS_PER_CYCLE // 2)
     assert (off_count(bus, MOTOR_A.in1), off_count(bus, MOTOR_A.in2)) == (0, PWM_MAX_COUNT)
     assert off_count(bus, MOTOR_A.pwm) == 2048  # +6 V peak
-    assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (PWM_MAX_COUNT, 0)
-    assert off_count(bus, MOTOR_B.pwm) == 1024  # -3 V

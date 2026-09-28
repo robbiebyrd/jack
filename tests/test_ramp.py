@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.ramp import PWM_MAX_COUNT, ramp_profile, square_profile
+from motor_test.ramp import PWM_MAX_COUNT, constant_profile, ramp_profile, square_profile
 
 
 def test_six_volts_on_twelve_volt_supply_peaks_at_half_duty():
@@ -70,3 +70,20 @@ def test_square_caps_full_supply_at_the_highest_usable_count():
 def test_invalid_square_inputs_are_rejected(high_volts, low_volts, supply_volts, steps):
     with pytest.raises(ValueError):
         square_profile(high_volts, low_volts, supply_volts, steps)
+
+
+def test_constant_holds_one_signed_count_for_the_whole_cycle():
+    assert constant_profile(volts=-6.0, supply_volts=12.0, steps=50) == [-2048] * 50
+
+
+@pytest.mark.parametrize(
+    "volts, supply_volts, steps",
+    [
+        (-13.0, 12.0, 50),  # below -supply
+        (-6.0, 0.0, 50),  # zero supply
+        (-6.0, 12.0, 49),  # odd steps
+    ],
+)
+def test_invalid_constant_inputs_are_rejected(volts, supply_volts, steps):
+    with pytest.raises(ValueError):
+        constant_profile(volts, supply_volts, steps)

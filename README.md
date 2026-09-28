@@ -1,8 +1,8 @@
 # jack
 
 Raspberry Pi + Waveshare Motor Driver HAT. Every 2 s on a 12 V supply,
-`main.py` ramps MA1/MA2 through 0 → +6 V → 0 while MB1/MB2 holds +3 V for 1 s
-then −3 V for 1 s, and short-brakes both on exit. See `SPEC.md`.
+`main.py` ramps MA1/MA2 through 0 → +6 V → 0 while MB1/MB2 holds a constant
+−6 V, and short-brakes both on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 

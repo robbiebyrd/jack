@@ -25,12 +25,18 @@ def ramp_profile(peak_volts: float, supply_volts: float, steps: int) -> list[int
 def square_profile(high_volts: float, low_volts: float, supply_volts: float, steps: int) -> list[int]:
     """Return one cycle that holds `high_volts` for the first half, then `low_volts` for the second."""
     _check_cycle(supply_volts, steps)
-    for name, volts in (("high_volts", high_volts), ("low_volts", low_volts)):
-        if not -supply_volts <= volts <= supply_volts:
-            raise ValueError(f"{name} must be between -{supply_volts} and {supply_volts}, got {volts}")
+    _check_signed_volts("high_volts", high_volts, supply_volts)
+    _check_signed_volts("low_volts", low_volts, supply_volts)
 
     half = steps // 2
     return [_volts_to_count(high_volts, supply_volts)] * half + [_volts_to_count(low_volts, supply_volts)] * half
+
+
+def constant_profile(volts: float, supply_volts: float, steps: int) -> list[int]:
+    """Return one cycle that holds `volts` at every step."""
+    _check_cycle(supply_volts, steps)
+    _check_signed_volts("volts", volts, supply_volts)
+    return [_volts_to_count(volts, supply_volts)] * steps
 
 
 def _check_cycle(supply_volts: float, steps: int) -> None:
@@ -38,6 +44,11 @@ def _check_cycle(supply_volts: float, steps: int) -> None:
         raise ValueError(f"supply_volts must be positive, got {supply_volts}")
     if steps < 2 or steps % 2:
         raise ValueError(f"steps must be an even number >= 2, got {steps}")
+
+
+def _check_signed_volts(name: str, volts: float, supply_volts: float) -> None:
+    if not -supply_volts <= volts <= supply_volts:
+        raise ValueError(f"{name} must be between -{supply_volts} and {supply_volts}, got {volts}")
 
 
 def _volts_to_count(volts: float, supply_volts: float) -> int:
