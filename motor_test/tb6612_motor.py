@@ -41,12 +41,14 @@ class Tb6612Motor:
         """Run at duty `abs(count)`, forward for count >= 0 and backward for count < 0.
 
         Direction pins are rewritten only when the direction changes, which keeps
-        each ramp step to a single four-register duty write.
+        each ramp step to a single four-register duty write. On a change the duty
+        is zeroed first, so the old duty never briefly drives the new direction.
         """
         if abs(count) > PWM_MAX_COUNT:
             raise ValueError(f"drive count must be between -{PWM_MAX_COUNT} and {PWM_MAX_COUNT}, got {count}")
         forward = count >= 0
         if forward != self._forward:
+            self._set_duty(0)
             self._set_direction(forward=forward != self._reverse)
             self._forward = forward
         self._set_duty(abs(count))

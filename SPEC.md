@@ -140,7 +140,9 @@ The app must come back on its own from any failure, without a human:
   `MotorChannels(pwm, in1, in2)`, with `MOTOR_A = (0, 1, 2)` and
   `MOTOR_B = (5, 3, 4)`. `drive(count)` runs at duty `abs(count)`,
   forward for count ≥ 0 and backward below 0, and rewrites the direction
-  pins only when the direction changes. `stop()` short-brakes.
+  pins only when the direction changes, zeroing the duty first so the old
+  duty never briefly drives the new direction (seen on hardware as a
+  +6 V blip when going from fully open to close). `stop()` short-brakes.
   `reverse=True` swaps the direction for a motor wired with flipped
   polarity. Signed drive, short brake and reverse are borrowed from
   https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT). That

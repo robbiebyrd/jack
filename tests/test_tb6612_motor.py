@@ -74,7 +74,7 @@ def test_direction_pins_are_written_only_when_the_direction_changes():
     bus.writes.clear()
     motor.drive(-1024)
     assert (off_count(bus, 3), off_count(bus, 4)) == (PWM_MAX_COUNT, 0)
-    assert len(bus.writes) == 12
+    assert len(bus.writes) == 16  # zero duty, both direction pins, new duty
 
 
 def test_drive_after_stop_restores_the_direction_pins():
@@ -129,3 +129,18 @@ def test_out_of_range_drive_is_rejected_without_writing(count):
     with pytest.raises(ValueError):
         motor.drive(count)
     assert bus.writes == []
+
+
+def test_direction_change_zeroes_the_duty_before_flipping_the_pins():
+    bus, _, motor = make_motor(MOTOR_B)
+    motor.drive(-2048)
+    bus.writes.clear()
+    motor.drive(341)
+    registers = [register for _, register, _ in bus.writes]
+    pwm_off_low = registers.index(0x1C)
+    first_direction_write = min(registers.index(0x12), registers.index(0x16))
+    assert pwm_off_low < first_direction_write
+    assert bus.writes[pwm_off_low] == (ADDRESS, 0x1C, 0x00)
+    assert bus.writes[registers.index(0x1D)] == (ADDRESS, 0x1D, 0x00)
+    assert off_count(bus, 5) == 341
+    assert (off_count(bus, 3), off_count(bus, 4)) == (0, PWM_MAX_COUNT)
