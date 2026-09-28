@@ -1,0 +1,19 @@
+[Unit]
+Description=Jack motor HAT application
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+WatchdogSec=10
+User=jack
+Group=jack
+SupplementaryGroups=i2c
+WorkingDirectory=/opt/jack
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/jack/main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

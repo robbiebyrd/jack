@@ -1,0 +1,9 @@
+[Unit]
+Description=Deploy latest jack commit from GitHub and restart the app on change
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=120
+ExecStart=/bin/bash /opt/jack/deploy/jack-update.sh
