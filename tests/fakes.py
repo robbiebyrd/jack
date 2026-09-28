@@ -1,5 +1,7 @@
 """In-memory stand-ins for hardware, shared by the test modules."""
 
+from collections import deque
+
 
 class RecordingBus:
     """In-memory PCA9685 register file that records every byte write."""
@@ -60,3 +62,47 @@ def install_recording_sleep(bin_dir, sleep_log, leds_during_sleep):
     )
     sleep.chmod(0o755)
     return {"SLEEP_LOG": str(sleep_log), "LEDS_DURING_SLEEP": str(leds_during_sleep)}
+
+
+class MotorThatFailsToStop(RecordingMotor):
+    """RecordingMotor whose stop() records the call, then fails like a dropped I2C write."""
+
+    def stop(self):
+        super().stop()
+        raise OSError("I2C write failed")
+
+
+def drives(motor):
+    """The signed counts a RecordingMotor was driven with, in order."""
+    return [call[1] for call in motor.calls if call[0] == "drive"]
+
+
+def no_op():
+    pass
+
+
+class RecordingSink:
+    """AudioSink that records every frame written; write number `fail_on_write` raises instead."""
+
+    def __init__(self, fail_on_write=None):
+        self.frames = []
+        self.closed = False
+        self._fail_on_write = fail_on_write
+
+    def write(self, frame):
+        if self._fail_on_write is not None and len(self.frames) + 1 == self._fail_on_write:
+            raise OSError("sound card gone")
+        self.frames.append(frame)
+
+    def close(self):
+        self.closed = True
+
+
+class ScriptedSource:
+    """VoiceSource that sounds its frames one per tick, then goes quiet."""
+
+    def __init__(self, frames):
+        self._frames = deque(frames)
+
+    def take_frames(self):
+        return [self._frames.popleft()] if self._frames else []

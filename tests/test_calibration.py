@@ -2,7 +2,7 @@ import pytest
 
 from motor_test.calibration import MAX_MOVE_S, parse_command, run_calibration
 from motor_test.mouth import CLOSE, RELAX, hold, open_fully
-from tests.fakes import RecordingMotor
+from tests.fakes import RecordingMotor, drives
 
 SUPPLY = 12.0
 STEP_S = 0.05
@@ -30,10 +30,6 @@ def run(motor, *lines, then=EOFError):
     output, slept = [], []
     run_calibration(motor, SUPPLY, STEP_S, scripted_input(*lines, then=then), output.append, slept.append)
     return output, slept
-
-
-def drives(motor):
-    return [call[1] for call in motor.calls if call[0] == "drive"]
 
 
 def test_parses_volts_and_seconds_as_a_hold():

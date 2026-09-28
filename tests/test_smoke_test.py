@@ -1,20 +1,10 @@
 import pytest
 
 from motor_test.smoke_test import run_generated_loop, run_profiles_loop
-from tests.fakes import RecordingMotor
+from tests.fakes import MotorThatFailsToStop, RecordingMotor, drives, no_op
 
 
 class LoopEnded(Exception):
-    pass
-
-
-class MotorThatFailsToStop(RecordingMotor):
-    def stop(self):
-        super().stop()
-        raise OSError("I2C write failed")
-
-
-def no_op():
     pass
 
 
@@ -28,10 +18,6 @@ def sleep_that_raises_after(n, exception=LoopEnded):
             raise exception
 
     return sleep, slept
-
-
-def drives(motor):
-    return [call[1] for call in motor.calls if call[0] == "drive"]
 
 
 def test_each_motor_plays_its_own_profile_in_step_and_repeats():
