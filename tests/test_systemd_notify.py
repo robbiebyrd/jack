@@ -1,5 +1,3 @@
-import pytest
-
 from motor_test.systemd_notify import notify, socket_address
 
 
