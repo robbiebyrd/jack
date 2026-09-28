@@ -155,8 +155,13 @@ none arrived), writes it to ALSA (the blocking write is the clock),
 updates the envelope, computes the mouth voltage and drives motor B.
 Motor A holds 0 V.
 
-- **Voice in:** the Mumble bot's callback puts decoded PCM on a bounded
-  queue. Several talkers are summed and clipped to 16-bit.
+- **Sources in:** the loop doesn't know where audio comes from. Each
+  `VoiceSource` (the Mumble bot; in the tuning tool, a WAV file) puts
+  decoded PCM on its own bounded queue, and every tick mixes the next frame
+  of each source (summed, clipped to 16-bit). Several Mumble talkers mix
+  the same way. Playing pre-recorded clips later is one more source, a
+  new adapter, with no change to the loop, envelope or mouth control.
+  The tuning tool exercises this path from day one.
 - **Backlog:** if more than `MAX_BACKLOG_MS` (start: 200 ms) is queued,
   the oldest frames are dropped and one log line says how much. Latency
   therefore can't grow without bound on Wi-Fi bursts.
@@ -340,8 +345,8 @@ The app must come back on its own from any failure, without a human:
   Mumble bot, installs a SIGTERM handler that raises `SystemExit` so the
   loop's cleanup runs, sends `READY=1` after init, and runs the talk loop
   with `on_second` sending `WATCHDOG=1`. `run_profiles_loop` and
-  `MOUTH_DEMO` are no longer used by `main.py`; whether to delete them is
-  Boss's call (`calibrate.py` still uses the ramp domain).
+  `MOUTH_DEMO` are no longer used by `main.py`; they stay in the repo
+  (Boss, 2026-09-28).
 
 ## Testing
 
@@ -387,7 +392,7 @@ The app must come back on its own from any failure, without a human:
     close, and the stall guard engaging and releasing.
   - Talk loop, with recording fakes for `AudioSink` and `MotorOutput`
     (checking our sequencing, not a mock's behavior): silence when the
-    queue is empty, talkers summed and clipped, backlog trimmed, mouth
+    queues are empty, two sources mixed and clipped, backlog trimmed, mouth
     lead delays audio by whole ticks, `on_second` every 50 ticks, both
     motors braked on an exception.
   - `jack.service` runs the venv's Python and loads `/etc/jack/jack.env`;
@@ -462,7 +467,8 @@ and are not tied to any login session or human user.
 - Icecast streaming (and MuSE, a source client whose last commit was
   2010): too much buffering for a two-way conversation.
 - Access from outside the LAN (a VPN such as Tailscale would be the path).
-- Playing pre-recorded clips from the app.
+- Playing pre-recorded clips from the app, and what triggers them. The
+  talk loop's source mixing is built so a clip source plugs in later.
 - Motor A behavior beyond holding 0 V.
 - The TB6612FNG `STBY` pin. Waveshare's sample code never drives it.
 - Push-based deploys (webhooks, self-hosted runners).
