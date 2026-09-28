@@ -30,6 +30,19 @@ changes.
 gives up) and is watched by the systemd watchdog. If the loop stops pinging
 for 10 s, systemd kills and restarts it.
 
+## Calibrate the mouth
+
+```bash
+ssh -t 10.10.0.54 sudo systemctl stop jack   # free the HAT (brakes both motors)
+ssh -t 10.10.0.54 python3 /opt/jack/calibrate.py
+b> -4.5 0.8                                  # motor B at -4.5 V for 0.8 s, then brake
+b> q
+ssh -t 10.10.0.54 sudo systemctl start jack  # resume the sequence
+```
+
+Negative volts open the mouth (0 V closed, about −6 V open). Moves are capped
+at 3 s and always end braked.
+
 ## Operate
 
 ```bash

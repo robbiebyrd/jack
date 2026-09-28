@@ -37,6 +37,10 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 Purpose: find which voltages move the animatronic head's mouth (driven by
 motor B) and how.
 
+Observed by Boss (2026-09-28): the mouth moves for motor B voltages between
+0 V and −6 V. 0 V is closed and −6 V is open, and a spring closes the mouth
+on its own, so the voltage sets how far the motor pushes against the spring.
+
 1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
    its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
    terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
@@ -49,6 +53,25 @@ motor B) and how.
 5. On SIGTERM or any exception, **short-brake** both motors before exiting:
    duty 0, then IN1 = IN2 = high (the TB6612FNG shorts the motor leads).
    A failure braking one motor must not prevent braking the other.
+
+## Calibration tool (`calibrate.py`)
+
+For finding mouth positions interactively on the Pi, without a commit per try:
+
+- Stop the app first (`sudo systemctl stop jack`); the tool refuses to run
+  while `jack.service` is active, since both would drive the same chip.
+- Run `python3 /opt/jack/calibrate.py` as a user in the `i2c` group. Each
+  line `<volts> <seconds>` drives motor B (negative = backward, the same
+  convention as `MOTOR_B_SEQUENCE`), then short-brakes. `q` or end of input
+  quits.
+- Volts must be within ±supply; seconds must be more than 0 and at most
+  3 s, to limit stall heating against an end stop. Rejected lines never
+  move the motor.
+- The motor brakes after every move and on every exit: `q`, end of input,
+  Ctrl-C, and I2C errors.
+- Code: `motor_test/calibration.py` (`parse_command`, `run_calibration`,
+  talking to motors only through `MotorOutput`) and `calibrate.py`
+  (composition root reusing `main.py`'s hardware constants).
 
 ## Self-recovery
 

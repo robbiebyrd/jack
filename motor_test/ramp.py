@@ -21,7 +21,7 @@ def ramp_profile(peak_volts: float, supply_volts: float, steps: int) -> list[int
     if not 0 <= peak_volts <= supply_volts:
         raise ValueError(f"peak_volts must be between 0 and {supply_volts}, got {peak_volts}")
 
-    peak_count = _volts_to_count(peak_volts, supply_volts)
+    peak_count = volts_to_count(peak_volts, supply_volts)
     return [round(peak_count * (1 - abs(2 * i / steps - 1))) for i in range(steps)]
 
 
@@ -32,7 +32,7 @@ def square_profile(high_volts: float, low_volts: float, supply_volts: float, ste
     _check_signed_volts("low_volts", low_volts, supply_volts)
 
     half = steps // 2
-    return [_volts_to_count(high_volts, supply_volts)] * half + [_volts_to_count(low_volts, supply_volts)] * half
+    return [volts_to_count(high_volts, supply_volts)] * half + [volts_to_count(low_volts, supply_volts)] * half
 
 
 def constant_profile(volts: float, supply_volts: float, steps: int) -> list[int]:
@@ -42,7 +42,7 @@ def constant_profile(volts: float, supply_volts: float, steps: int) -> list[int]
     if steps < 1:
         raise ValueError(f"steps must be at least 1, got {steps}")
     _check_signed_volts("volts", volts, supply_volts)
-    return [_volts_to_count(volts, supply_volts)] * steps
+    return [volts_to_count(volts, supply_volts)] * steps
 
 
 def hold_sequence_profile(
@@ -65,7 +65,7 @@ def hold_sequence_profile(
         steps = round(seconds / step_s)
         if steps < 1 or not math.isclose(steps * step_s, seconds):
             raise ValueError(f"{seconds} s is not a whole, non-zero number of {step_s} s steps")
-        counts += [_volts_to_count(volts, supply_volts)] * steps
+        counts += [volts_to_count(volts, supply_volts)] * steps
     return counts
 
 
@@ -81,7 +81,7 @@ def _check_signed_volts(name: str, volts: float, supply_volts: float) -> None:
         raise ValueError(f"{name} must be between -{supply_volts} and {supply_volts}, got {volts}")
 
 
-def _volts_to_count(volts: float, supply_volts: float) -> int:
+def volts_to_count(volts: float, supply_volts: float) -> int:
     """Signed duty count for `volts`, capped so its magnitude never reaches the full-off bit."""
     count = min(round(abs(volts) / supply_volts * PWM_RESOLUTION), PWM_MAX_COUNT)
     return count if volts >= 0 else -count
