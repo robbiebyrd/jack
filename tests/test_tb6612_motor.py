@@ -8,6 +8,20 @@ from tests.fakes import RecordingBus
 ADDRESS = 0x40
 
 
+class PwmWriteFailsBus(RecordingBus):
+    """RecordingBus that raises OSError on writes to one channel's PWM registers, as from a flaky I2C write."""
+
+    def __init__(self, failing_channel):
+        super().__init__()
+        base = 0x06 + 4 * failing_channel
+        self._failing_registers = {base, base + 1, base + 2, base + 3}
+
+    def write_byte_data(self, i2c_addr, register, value):
+        if register in self._failing_registers:
+            raise OSError("I2C write failed")
+        super().write_byte_data(i2c_addr, register, value)
+
+
 def make_motor(channels, reverse=False):
     bus = RecordingBus()
     chip = Pca9685(bus, ADDRESS, pwm_freq_hz=50)
@@ -81,6 +95,16 @@ def test_stop_zeroes_duty_before_short_braking():
     assert off_count(bus, 5) == 0
     assert off_count(bus, 3) == PWM_MAX_COUNT
     assert off_count(bus, 4) == PWM_MAX_COUNT
+
+
+def test_stop_still_short_brakes_when_zeroing_duty_fails():
+    bus = PwmWriteFailsBus(MOTOR_B.pwm)
+    chip = Pca9685(bus, ADDRESS, pwm_freq_hz=50)
+    motor = Tb6612Motor(chip, MOTOR_B)
+    with pytest.raises(OSError, match="I2C write failed"):
+        motor.stop()
+    assert off_count(bus, MOTOR_B.in1) == PWM_MAX_COUNT
+    assert off_count(bus, MOTOR_B.in2) == PWM_MAX_COUNT
 
 
 def test_out_of_range_duty_is_rejected():

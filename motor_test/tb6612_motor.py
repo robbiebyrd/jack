@@ -6,6 +6,7 @@ https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT).
 
 from typing import NamedTuple
 
+from motor_test.attempt_all import attempt_all
 from motor_test.pca9685 import Pca9685
 from motor_test.ramp import PWM_MAX_COUNT
 
@@ -44,9 +45,18 @@ class Tb6612Motor:
         self._chip.set_off_count(self._channels.pwm, count)
 
     def stop(self) -> None:
-        """Short brake: zero the duty, then drive IN1 and IN2 high so the TB6612FNG shorts the motor leads."""
-        self.set_duty(0)
-        self._set_inputs(HIGH, HIGH)
+        """Short brake: zero the duty, then drive IN1 and IN2 high so the TB6612FNG shorts the motor leads.
+
+        Each write is attempted even if an earlier one raises, so a transient I2C
+        error zeroing the duty doesn't skip the brake pins.
+        """
+        attempt_all(
+            [
+                lambda: self.set_duty(0),
+                lambda: self._chip.set_off_count(self._channels.in1, HIGH),
+                lambda: self._chip.set_off_count(self._channels.in2, HIGH),
+            ]
+        )
 
     def _set_direction(self, forward: bool) -> None:
         # Waveshare's "forward" is IN1 low, IN2 high.
