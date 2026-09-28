@@ -8,6 +8,10 @@ the new commit and restarts the app automatically. The initial `main.py` is
 a hardware smoke test for the Waveshare Motor Driver HAT that proves the
 whole chain works: push → Pi pulls → app restarts → motor output moves.
 
+Next, Jack talks: Boss speaks into a Mumble client on a computer on the
+same LAN, Jack plays the voice from its speaker, and the animatronic's
+mouth (motor B) moves in sync with it (see "Talking").
+
 ## Hardware facts
 
 Sources: Waveshare wiki (https://www.waveshare.com/wiki/Motor_Driver_HAT)
@@ -31,11 +35,19 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 - `git` not installed; `i2c-tools` not installed.
 - I2C disabled (`#dtparam=i2c_arm=on` in `/boot/firmware/config.txt`).
 - `sudo` requires a password, so Boss runs root setup steps.
+- Pi 4, 4 cores, 8 GB RAM. Network is Wi-Fi (`wlan0`); `eth0` is down.
+- Audio out: ALSA card 0, `bcm2835 Headphones` (the 3.5 mm jack); cards
+  1 and 2 are HDMI. No audio input. No PipeWire, PulseAudio, mpv, ffmpeg,
+  GStreamer or numpy installed.
+- Trixie package candidates (checked 2026-09-28): `mumble-server`
+  1.5.735-5+deb13u1, `python3-alsaaudio` 0.10.0, `python3-opuslib` 3.0.1,
+  `python3-protobuf` 3.21.12. `pymumble` is not packaged.
 
 ## Smoke test behavior (`main.py`)
 
 Purpose: find which voltages move the animatronic head's mouth (driven by
-motor B) and how.
+motor B) and how. The talk loop (see "Talking") replaces this demo in
+`main.py`; the calibration table below stays the basis for its settings.
 
 Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
 
@@ -86,6 +98,152 @@ For finding mouth positions interactively on the Pi, without a commit per try:
   talking to motors only through `MotorOutput`) and `calibrate.py`
   (composition root reusing `main.py`'s hardware constants).
 
+## Talking
+
+Boss talks from a Mumble desktop client (push-to-talk) on a computer on the
+same LAN; Jack plays the voice from its 3.5 mm jack and moves the mouth in
+sync. One-way only: Jack has no microphone yet.
+
+### Where the design comes from
+
+Gemmy heads are commonly driven by a board like Blue Point Engineering's
+Talking Skull DC Motor Controller V2
+(http://www.bpesolutions.com/bpemanuals/TS.AssemblyGuide.pdf, schematic on
+page 5). It is not programmable, but its circuit is a recipe:
+
+| Stage | Parts | Function |
+|---|---|---|
+| Channel select | DPDT switch | Left or right stereo channel drives the mouth; the other passes to the speaker |
+| Amplify, half-wave rectify | LM358 A: 10K input to ground, 100K feedback, 4.7K to ground | Non-inverting gain 1 + 100k/4.7k ≈ 22; single supply, so only the positive half passes; line level saturates it |
+| Envelope | 1N4148, 0.1 µF, 10K to ground | Peak detector: near-instant attack, decay τ = 10k × 0.1 µF = 1 ms; the motor's inertia does the real smoothing |
+| Gate and drive | IRF510 low-side MOSFET, motor on 4.5 V | Conducts only above the gate threshold (2–4 V per datasheet), a noise gate; one direction, a spring closes the mouth |
+| Unused | LM358 B, 100K/100K divider | 4.5 V bias not connected to anything (ties off the spare op-amp) |
+
+Jack does the same in software (level → gate → proportional drive) with
+three improvements the board can't make: it closes the mouth actively
+(our mouth holds its pose unpowered, see the calibration table), it limits
+stall time, and it can run the mouth slightly ahead of the sound to hide
+the motor's lag.
+
+### Step 0: feasibility spike (throwaway)
+
+`pymumble` (https://github.com/azlux/pymumble) last changed code in
+November 2023 (Python 3.12 SSL fixes) and is not proven on Python 3.13 or
+Mumble server 1.5. Before any product code, a throwaway script on the Pi
+must show:
+
+1. `pymumble` installs in a venv and connects to the local
+   `mumble-server` as user `Jack`.
+2. Boss's voice from the Mumble desktop client arrives as PCM, and the
+   format (sample rate, sample width, channels, chunk size) is recorded.
+3. That PCM plays out of ALSA card 0 through `python3-alsaaudio`, with a
+   working ALSA period and buffer size recorded.
+4. Whether pymumble's own reconnect recovers after
+   `systemctl restart mumble-server`.
+5. A rough mouth-to-speaker delay (Boss's judgement is fine; it's a
+   sanity check, not a benchmark).
+
+Findings go into this spec; the script is not committed. If pymumble
+can't do 1–3, stop and revisit the approach with Boss (the fallback
+considered was WebRTC with `aiortc`, trixie 1.11.0).
+
+### Talk loop
+
+One loop in `main.py`'s process, **paced by the sound card**: each tick
+takes the next 20 ms frame of voice from a queue (or 20 ms of silence if
+none arrived), writes it to ALSA (the blocking write is the clock),
+updates the envelope, computes the mouth voltage and drives motor B.
+Motor A holds 0 V.
+
+- **Voice in:** the Mumble bot's callback puts decoded PCM on a bounded
+  queue. Several talkers are summed and clipped to 16-bit.
+- **Backlog:** if more than `MAX_BACKLOG_MS` (start: 200 ms) is queued,
+  the oldest frames are dropped and one log line says how much. Latency
+  therefore can't grow without bound on Wi-Fi bursts.
+- **Mouth lead:** audio passes through a FIFO of `MOUTH_LEAD_MS` (whole
+  ticks, start: 0) while the motor uses the undelayed frame, so the mouth
+  runs that far ahead of the sound. The ALSA buffer already puts the mouth
+  slightly ahead; this setting adds to it.
+- **Watchdog:** `WATCHDOG=1` about once a second (every 50 ticks), whether
+  or not anyone is talking, so a silent Jack is never mistaken for a hung
+  one.
+
+### Envelope (`envelope.py`)
+
+Per 20 ms frame: RMS of the 16-bit samples in dBFS (full-scale = 32767;
+digital silence reads as the floor, −90 dBFS). Then one-pole smoothing in
+dB with separate time constants: `ATTACK_S` while rising, `RELEASE_S`
+while falling (coefficient e^(−tick/τ)).
+
+### Mouth control (`lip_sync.py`)
+
+A pure, tick-based state machine: smoothed level in, signed volts for
+motor B out.
+
+| State | Motor B | Next |
+|---|---|---|
+| Closed | 0 V (short brake; the mouth holds closed unpowered) | level ≥ `GATE_OPEN_DB` → Open |
+| Open | −(`OPEN_MIN_V` + (`OPEN_MAX_V` − `OPEN_MIN_V`) × loudness), loudness = level scaled 0..1 between `GATE_OPEN_DB` and `FULL_DB`, clamped | level < `GATE_CLOSE_DB` → Closing |
+| Closing | +`CLOSE_V` for `CLOSE_S`, then → Closed | level ≥ `GATE_OPEN_DB` → Open at once (the next syllable interrupts the close) |
+
+- **Hysteresis:** `GATE_CLOSE_DB` is below `GATE_OPEN_DB` so the mouth
+  doesn't flutter at the threshold.
+- **Opening slew limit:** the open voltage's magnitude may grow by at most
+  `OPEN_SLEW_V_PER_S` per second, since stepping straight to −6 V strained
+  the motor (Boss, 2026-09-28; see `OPEN_RAMP_S`). Falling magnitude and
+  the close pulse are not limited; `Tb6612Motor` already zeroes the duty
+  before a direction flip.
+- **Stall guard:** if the open drive stays beyond `STALL_V` for more than
+  `MAX_STALL_S` without a break, the open voltage is capped at
+  `OPEN_MIN_V` until the level drops below `GATE_CLOSE_DB`.
+
+Starting values. **These are guesses to tune by eye**, except where the
+basis says calibration:
+
+| Setting | Start | Basis |
+|---|---|---|
+| `OPEN_MIN_V` / `OPEN_MAX_V` | 2 V / 6 V | Calibration: relaxed open, fully open |
+| `OPEN_SLEW_V_PER_S` | 24 V/s | The calibrated ramp: 6 V over `OPEN_RAMP_S` = 0.25 s |
+| `CLOSE_V` / `CLOSE_S` | 1 V / 0.1 s | Calibration says 1 V closes; 0.25 s is too slow for syllables (≈150–250 ms apart), so 0.1 s is a guess |
+| `STALL_V` / `MAX_STALL_S` | 5 V / 0.5 s | The mouth demo held −6 V for 0.5 s |
+| `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.08 s | Guess |
+| `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −35 / −40 / −10 dBFS | Guess; depends on Boss's mic gain |
+| `MOUTH_LEAD_MS` | 0 ms | Tune by eye |
+| `MAX_BACKLOG_MS` | 200 ms | Guess |
+
+All live together as constants in one module.
+
+### Tuning tool (`lipsync_wav.py`)
+
+Plays a WAV file through the same talk loop without Mumble, on the Pi, with
+a command-line override for every setting above, so Boss can tune by
+watching the mouth. It refuses to run while `jack.service` is active (both
+would drive the chip and the sound card), using the same check as
+`calibrate.py`, moved into one shared helper.
+
+### Mumble server and client
+
+- `mumble-server` (Debian's package and unit) runs on the Pi, port 64738.
+- Boss sets the server password in `/etc/mumble-server.ini`. The bot reads
+  it from `JACK_MUMBLE_PASSWORD` in `/etc/jack/jack.env` (root:jack, 0640),
+  loaded by `EnvironmentFile=`. Secrets never go in the repo, which is
+  public.
+- The bot joins the root channel as `Jack`. Boss connects the Mumble
+  desktop client to `10.10.0.54:64738` and uses push-to-talk.
+
+### Failure handling
+
+| Failure | Behavior |
+|---|---|
+| Mumble server down, or bot disconnected | Bot reconnects (pymumble's reconnect if the spike proves it works, else our own retry every 5 s); the loop keeps playing silence, mouth closed, watchdog pinged. One log line per disconnect and per reconnect. |
+| Gap in voice | Silence is played; the state machine closes the mouth. |
+| Backlog | Dropped per `MAX_BACKLOG_MS`, logged. |
+| ALSA underrun (xrun) | Recover the device, log, continue. |
+| Other ALSA error, or I2C `OSError` | Propagates: both motors short-brake (`attempt_all`), the process exits, systemd restarts it (see Self-recovery). |
+| Loop hangs | Watchdog kills and restarts after 10 s; the motor holds its last duty until then (accepted, as today). |
+| SIGTERM | `SystemExit`: brake both motors, close ALSA, disconnect the bot. |
+| `mumble-server` crashes | Its own unit restarts it; Jack sees a disconnect. |
+
 ## Self-recovery
 
 The app must come back on its own from any failure, without a human:
@@ -99,7 +257,7 @@ The app must come back on its own from any failure, without a human:
 - **Hang** (process alive but stuck, for example blocked on I2C):
   the systemd watchdog. The unit is `Type=notify`, `NotifyAccess=main`,
   `WatchdogSec=10`. The app sends `READY=1` once the motor is initialized
-  and `WATCHDOG=1` after every completed 2 s ramp cycle. If no ping
+  and `WATCHDOG=1` about once a second from the talk loop. If no ping
   arrives within 10 s, systemd kills the app (SIGABRT) and restarts it.
   A hung process can't stop its own motor, so the motor holds its last
   duty until the restart (about 10 s + 5 s at worst).
@@ -161,11 +319,29 @@ The app must come back on its own from any failure, without a human:
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
-- `main.py`: builds one `Pca9685`, pairs motor A (0 V) and motor B (the
-  mouth demo) with their profiles (`build_profiles`), wires them to the profile loop,
-  installs a SIGTERM handler that
-  raises `SystemExit` so the loop's cleanup runs, sends `READY=1` after
-  motor init, and starts the loop with `on_cycle` sending `WATCHDOG=1`.
+- `motor_test/envelope.py` (domain, pure): frame RMS in dBFS and the
+  attack/release smoother.
+- `motor_test/lip_sync.py` (domain, pure): the mouth state machine and its
+  settings; level in, signed volts out, one call per tick.
+- `motor_test/ports.py` gains `VoiceSource` (delivers PCM frames to a
+  callback; connect and disconnect) and `AudioSink` (write one frame,
+  blocking; close).
+- `motor_test/mumble_voice.py` (adapter): the pymumble bot, a
+  `VoiceSource`. The only module that imports pymumble.
+- `motor_test/alsa_sink.py` (adapter): an `AudioSink` on ALSA card 0 via
+  `python3-alsaaudio`, recovering from underruns. The only module that
+  imports `alsaaudio`.
+- `motor_test/talk_loop.py` (application): the talk loop above, taking
+  the voice queue, an `AudioSink`, the two `MotorOutput`s, the settings
+  and an `on_second` callback; always brakes both motors on exit.
+- `lipsync_wav.py`: composition root for the tuning tool (WAV frames in
+  place of Mumble).
+- `main.py`: builds one `Pca9685`, both motors, the ALSA sink and the
+  Mumble bot, installs a SIGTERM handler that raises `SystemExit` so the
+  loop's cleanup runs, sends `READY=1` after init, and runs the talk loop
+  with `on_second` sending `WATCHDOG=1`. `run_profiles_loop` and
+  `MOUTH_DEMO` are no longer used by `main.py`; whether to delete them is
+  Boss's call (`calibrate.py` still uses the ramp domain).
 
 ## Testing
 
@@ -203,9 +379,26 @@ The app must come back on its own from any failure, without a human:
     (+341 ×5, 0 ×30, −683 ×10, 0 ×30, the 5-step ramp, −2048 ×10) over a
     4.5 s cycle, inside the 10 s watchdog with two cycles to spare.
   - The mouth poses match the calibration table.
+  - Envelope: digital silence reads −90 dBFS, a full-scale sine reads
+    about −3.01 dBFS, and a step input rises with `ATTACK_S` and falls
+    with `RELEASE_S`.
+  - Lip sync: gate and hysteresis, both ends of the proportional range,
+    the opening slew limit, close pulse length, a syllable interrupting a
+    close, and the stall guard engaging and releasing.
+  - Talk loop, with recording fakes for `AudioSink` and `MotorOutput`
+    (checking our sequencing, not a mock's behavior): silence when the
+    queue is empty, talkers summed and clipped, backlog trimmed, mouth
+    lead delays audio by whole ticks, `on_second` every 50 ticks, both
+    motors braked on an exception.
+  - `jack.service` runs the venv's Python and loads `/etc/jack/jack.env`;
+    `jack-update.sh` re-runs pip only when `requirements-pi.txt` changed.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.
+- Talking is verified on the Pi, with no mocks: the spike, then
+  `lipsync_wav.py` while Boss tunes by eye, then end-to-end from Boss's
+  Mumble client, then the self-recovery checks again (`kill -9`,
+  `kill -STOP`, reboot, and `systemctl restart mumble-server`).
 
 ## Deployment
 
@@ -214,21 +407,33 @@ and are not tied to any login session or human user.
 
 - **Checkout:** `/opt/jack`, owned by root, cloned from
   `https://github.com/robbiebyrd/jack.git` (public, no credentials).
-- **`jack.service`:** runs `/usr/bin/python3 /opt/jack/main.py` as the
-  dedicated system account `jack` (no home, nologin shell, only in group
-  `i2c`). Self-recovery settings as above; `WantedBy=multi-user.target`.
+- **`jack.service`:** runs `/opt/jack-venv/bin/python /opt/jack/main.py`
+  as the dedicated system account `jack` (no home, nologin shell, in
+  groups `i2c` and `audio`), with `EnvironmentFile=/etc/jack/jack.env`.
+  Self-recovery settings as above; `WantedBy=multi-user.target`.
+- **Python environment:** `/opt/jack-venv`, created with
+  `--system-site-packages` so apt's `python3-smbus2`, `python3-alsaaudio`,
+  `python3-opuslib` and `python3-protobuf` are used. Only pymumble comes
+  from pip, pinned in `requirements-pi.txt` to the exact version or git
+  commit the spike proved.
 - **`jack-update.service` + `jack-update.timer`:** runs as root every 60 s
   (`OnBootSec=60`, `OnUnitActiveSec=60`). Executes
   `/opt/jack/deploy/jack-update.sh`.
 - **`deploy/jack-update.sh`:** `git fetch origin main`; if `HEAD` differs
   from `origin/main`, `git reset --hard origin/main` and
   `systemctl try-restart jack` (restarts only if running, so a deliberate
-  stop is not overridden). Local edits on the Pi are discarded by design.
-  The repo is the only source of truth.
-- **`deploy/install.sh`** (run once as root by Boss): installs `git`,
-  enables I2C (`raspi-config nonint do_i2c 0`), creates the `jack` system
-  user, clones to `/opt/jack`, installs and enables the units, and says
-  to reboot so I2C takes effect.
+  stop is not overridden). If the new commit changed
+  `requirements-pi.txt`, it runs the venv's `pip install -r` first, so
+  code never deploys without its pinned dependency. Local edits on the Pi
+  are discarded by design. The repo is the only source of truth.
+- **`deploy/install.sh`** (run as root by Boss; safe to re-run): installs
+  `git`, `mumble-server`, `python3-alsaaudio`, `python3-opuslib`,
+  `python3-protobuf` and `python3-venv`, enables I2C
+  (`raspi-config nonint do_i2c 0`), creates the `jack` system user (groups
+  `i2c`, `audio`), clones to `/opt/jack`, creates the venv and installs
+  `requirements-pi.txt`, creates `/etc/jack/jack.env` with a placeholder
+  password only if it is missing (never overwrites it), installs and
+  enables the units, and says to reboot so I2C takes effect.
 - **Deploy signal:** after a deploy (only when a new commit landed),
   `jack-update.sh` runs `deploy/flash-leds.sh`, which blinks the Pi 4's
   onboard ACT (green) and PWR (red) LEDs with the kernel `timer` trigger
@@ -245,6 +450,19 @@ and are not tied to any login session or human user.
 
 ## Out of scope
 
-- Real application behavior beyond this smoke test.
+- Return audio (a microphone at Jack so Boss hears visitors). Its own spec
+  later. A class-compliant USB mic is preferred. Bluetooth was considered
+  and deferred: headset-profile mics are 8–16 kHz narrowband and drag
+  Bluetooth speaker output down with them, they need a Bluetooth audio stack
+  the Pi doesn't have, and the Pi 4's Bluetooth shares a radio with its
+  Wi-Fi, which carries the voice link.
+- A physical line-in (USB sound card) for audio from devices Jack doesn't
+  control. The audio source sits behind `VoiceSource`, so it would be a new
+  adapter.
+- Icecast streaming (and MuSE, a source client whose last commit was
+  2010): too much buffering for a two-way conversation.
+- Access from outside the LAN (a VPN such as Tailscale would be the path).
+- Playing pre-recorded clips from the app.
+- Motor A behavior beyond holding 0 V.
 - The TB6612FNG `STBY` pin. Waveshare's sample code never drives it.
 - Push-based deploys (webhooks, self-hosted runners).
