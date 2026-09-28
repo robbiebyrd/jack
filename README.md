@@ -1,8 +1,8 @@
 # jack
 
-Raspberry Pi + Waveshare Motor Driver HAT. Every 2 s on a 12 V supply,
-`main.py` ramps MA1/MA2 through 0 → +6 V → 0 while MB1/MB2 holds a constant
-−6 V, and short-brakes both on exit. See `SPEC.md`.
+Raspberry Pi + Waveshare Motor Driver HAT driving an animatronic head's mouth
+(motor B). `main.py` repeats motor B's `MOTOR_B_SEQUENCE` (−6 V for 0.5 s, −3 V
+for 1 s, 0 V for 2 s) with motor A off, and short-brakes both on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 

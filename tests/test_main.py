@@ -20,13 +20,17 @@ def test_watchdog_ping_reaches_systemd(notify_socket):
     assert notify_socket.recv(64) == b"WATCHDOG=1"
 
 
+def cycle_s():
+    return len(main.build_profiles(Pca9685(RecordingBus(), main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))[0][1]) * main.STEP_S
+
+
 def test_cycle_is_well_inside_the_watchdog_timeout():
     watchdog_s = 10  # WatchdogSec in deploy/jack.service
-    assert main.CYCLE_S * 2 < watchdog_s
+    assert cycle_s() * 2 < watchdog_s
 
 
-def test_cycle_is_two_seconds_of_40_ms_steps():
-    assert main.CYCLE_S / main.STEPS_PER_CYCLE == pytest.approx(0.04)
+def test_cycle_is_three_and_a_half_seconds():
+    assert cycle_s() == pytest.approx(3.5)
 
 
 def play_step(profiles, step):
@@ -34,15 +38,14 @@ def play_step(profiles, step):
         motor.drive(counts[step])
 
 
-def test_motor_a_ramps_to_plus_six_while_motor_b_holds_minus_six():
+def test_motor_b_steps_minus_six_minus_three_zero_while_motor_a_stays_off():
     bus = RecordingBus()
     profiles = main.build_profiles(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
+    (_, a_counts), (_, b_counts) = profiles
+    assert a_counts == [0] * 70
+    assert b_counts == [-2048] * 10 + [-1024] * 20 + [0] * 40
 
-    for step in (0, main.STEPS_PER_CYCLE // 2, main.STEPS_PER_CYCLE - 1):
-        play_step(profiles, step)
-        assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (PWM_MAX_COUNT, 0)
-        assert off_count(bus, MOTOR_B.pwm) == 2048  # -6 V of 12 V
-
-    play_step(profiles, main.STEPS_PER_CYCLE // 2)
-    assert (off_count(bus, MOTOR_A.in1), off_count(bus, MOTOR_A.in2)) == (0, PWM_MAX_COUNT)
-    assert off_count(bus, MOTOR_A.pwm) == 2048  # +6 V peak
+    play_step(profiles, 0)
+    assert off_count(bus, MOTOR_A.pwm) == 0
+    assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (PWM_MAX_COUNT, 0)
+    assert off_count(bus, MOTOR_B.pwm) == 2048  # -6 V of 12 V

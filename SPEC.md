@@ -34,17 +34,18 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 
 ## Smoke test behavior (`main.py`)
 
-1. Drive **both** motor channels in lockstep through a 2 s cycle of 50
-   steps (40 ms each). Each motor has its own signed profile; positive
-   means forward (IN1 = 0, IN2 = 1, so terminal 1 is positive), negative
-   means backward (IN1 = 1, IN2 = 0).
-2. **Motor A** ramps its average voltage 0 V → +6 V over 1 s, then
-   +6 V → 0 V over 1 s: measured MA1 − MA2 goes 0 → +6 V → 0.
-   - With 12 V supply, 6 V = 50% duty = PCA9685 count 2048 of 4096.
-3. **Motor B** holds a constant −6 V (backward at 50% duty, count 2048):
-   measured MB1 − MB2 stays at −6 V.
-4. Repeat the 2 s cycle back-to-back, with no pause, until the process
-   is stopped.
+Purpose: find which voltages move the animatronic head's mouth (driven by
+motor B) and how.
+
+1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
+   its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
+   terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
+2. **Motor B** holds −6 V for 0.5 s, then −3 V for 1 s, then 0 V for 2 s
+   (3.5 s cycle), set in `MOTOR_B_SEQUENCE` as `(volts, seconds)` pairs.
+   - With 12 V supply, 6 V = 50% duty = count 2048; 3 V = count 1024.
+3. **Motor A** holds 0 V for the whole cycle.
+4. Repeat the cycle back-to-back, with no pause, until the process is
+   stopped.
 5. On SIGTERM or any exception, **short-brake** both motors before exiting:
    duty 0, then IN1 = IN2 = high (the TB6612FNG shorts the motor leads).
    A failure braking one motor must not prevent braking the other.
@@ -80,7 +81,9 @@ The app must come back on its own from any failure, without a human:
   `square_profile(high_volts, low_volts, supply_volts, steps)` holds
   `high_volts` for the first half and `low_volts` for the second.
   `constant_profile(volts, supply_volts, steps)` holds `volts` throughout.
-  All three raise `ValueError` for a non-positive supply, a voltage outside the
+  `hold_sequence_profile(segments, supply_volts, step_s)` holds each
+  `(volts, seconds)` segment in order and rejects durations that are not a
+  whole number of steps. All raise `ValueError` for a non-positive supply, a voltage outside the
   supply range, or an odd or too-small step count. Magnitudes cap at 4095
   (4096 would set the PCA9685 full-off bit).
 - `motor_test/ports.py`: the `MotorOutput` protocol, with
@@ -114,8 +117,8 @@ The app must come back on its own from any failure, without a human:
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
-- `main.py`: builds one `Pca9685`, pairs motor A with its ramp and motor B
-  with its constant −6 V (`build_profiles`), wires them to the profile loop,
+- `main.py`: builds one `Pca9685`, pairs motor A (0 V) and motor B (its hold
+  sequence) with their profiles (`build_profiles`), wires them to the profile loop,
   installs a SIGTERM handler that
   raises `SystemExit` so the loop's cleanup runs, sends `READY=1` after
   motor init, and starts the loop with `on_cycle` sending `WATCHDOG=1`.
@@ -128,7 +131,8 @@ The app must come back on its own from any failure, without a human:
     is symmetric, and has the requested number of steps. A full-supply
     peak caps at 4095. Square is +1024 for the first half and −1024 for
     the second for ±3 V/12 V, and caps at ±4095. Constant −6 V/12 V is
-    −2048 at every step.
+    −2048 at every step. The −6/−3/0 V hold sequence at 50 ms steps is 10,
+    20 and 40 steps.
   - Invalid inputs raise `ValueError`.
   - `run_profiles_loop` drives each motor with its own profile in
     lockstep, repeats the cycle, stops every motor when interrupted
@@ -150,8 +154,8 @@ The app must come back on its own from any failure, without a human:
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.build_profiles` puts motor A at +6 V at the half-cycle and holds
-    motor B at −6 V at every step.
+  - `main.build_profiles` holds motor A at 0 V and plays motor B's
+    −6/−3/0 V sequence over a 3.5 s cycle, well inside the 10 s watchdog.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.

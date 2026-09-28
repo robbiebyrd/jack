@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.ramp import PWM_MAX_COUNT, constant_profile, ramp_profile, square_profile
+from motor_test.ramp import PWM_MAX_COUNT, constant_profile, hold_sequence_profile, ramp_profile, square_profile
 
 
 def test_six_volts_on_twelve_volt_supply_peaks_at_half_duty():
@@ -76,14 +76,39 @@ def test_constant_holds_one_signed_count_for_the_whole_cycle():
     assert constant_profile(volts=-6.0, supply_volts=12.0, steps=50) == [-2048] * 50
 
 
+def test_constant_accepts_an_odd_number_of_steps():
+    assert constant_profile(volts=0.0, supply_volts=12.0, steps=3) == [0, 0, 0]
+
+
 @pytest.mark.parametrize(
     "volts, supply_volts, steps",
     [
         (-13.0, 12.0, 50),  # below -supply
         (-6.0, 0.0, 50),  # zero supply
-        (-6.0, 12.0, 49),  # odd steps
+        (-6.0, 12.0, 0),  # no steps
     ],
 )
 def test_invalid_constant_inputs_are_rejected(volts, supply_volts, steps):
     with pytest.raises(ValueError):
         constant_profile(volts, supply_volts, steps)
+
+
+def test_hold_sequence_holds_each_voltage_for_its_duration():
+    counts = hold_sequence_profile([(-6.0, 0.5), (-3.0, 1.0), (0.0, 2.0)], supply_volts=12.0, step_s=0.05)
+    assert counts == [-2048] * 10 + [-1024] * 20 + [0] * 40
+
+
+@pytest.mark.parametrize(
+    "segments, supply_volts, step_s",
+    [
+        ([], 12.0, 0.05),  # nothing to hold
+        ([(-13.0, 0.5)], 12.0, 0.05),  # below -supply
+        ([(-6.0, 0.5)], 0.0, 0.05),  # zero supply
+        ([(-6.0, 0.03)], 12.0, 0.05),  # duration not a whole number of steps
+        ([(-6.0, 0.0)], 12.0, 0.05),  # zero-length segment
+        ([(-6.0, 0.5)], 12.0, 0.0),  # zero step
+    ],
+)
+def test_invalid_hold_sequences_are_rejected(segments, supply_volts, step_s):
+    with pytest.raises(ValueError):
+        hold_sequence_profile(segments, supply_volts, step_s)
