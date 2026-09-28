@@ -147,11 +147,24 @@ must show:
 4. Whether pymumble's own reconnect recovers after
    `systemctl restart mumble-server`.
 5. A rough mouth-to-speaker delay (Boss's judgement is fine; it's a
-   sanity check, not a benchmark).
+   sanity check, not a benchmark), at the start and again after 30
+   minutes connected. pymumble's README warns that "the latency increase
+   with connexion time" because it isn't asynchronous; the maintainer is
+   looking for someone to take the project over.
+6. Whether the voice sounds choppy over Jack's Wi-Fi (gaps would call for
+   a small jitter buffer, which is not in this design).
 
 Findings go into this spec; the script is not committed. If pymumble
-can't do 1–3, stop and revisit the approach with Boss (the fallback
-considered was WebRTC with `aiortc`, trixie 1.11.0).
+can't do 1–3, stops recovering in 4, or drifts noticeably in 5, stop and
+revisit the approach with Boss (the fallback considered was WebRTC with
+`aiortc`, trixie 1.11.0).
+
+pymumble facts from its source (commit `a560e60`): decoded audio is
+mono 16-bit 48 kHz PCM; `reconnect=True` retries every 10 s
+(`PYMUMBLE_CONNECTION_RETRY_INTERVAL`); the sound callback runs on
+pymumble's own thread with `(user, SoundChunk)`, where `chunk.pcm` is the
+bytes; its client thread is not a daemon, so the app must stop it or mark
+it daemon or the process can't exit. License: GPLv3.
 
 ### Talk loop
 
@@ -215,14 +228,15 @@ basis says calibration:
 |---|---|---|
 | `OPEN_MIN_V` / `OPEN_MAX_V` | 2 V / 6 V | Calibration: relaxed open, fully open |
 | `OPEN_SLEW_V_PER_S` | 24 V/s | The calibrated ramp: 6 V over `OPEN_RAMP_S` = 0.25 s |
-| `CLOSE_V` / `CLOSE_S` | 1 V / 0.1 s | Calibration says 1 V closes; 0.25 s is too slow for syllables (≈150–250 ms apart), so 0.1 s is a guess |
+| `CLOSE_V` / `CLOSE_S` | 0.5 V / 0.16 s | The random-speech demo's syllable close (0.5 V, 0.15 s), which Boss saw as smooth and lifelike (2026-09-28), rounded to whole 20 ms ticks; maybe a little slow |
 | `STALL_V` / `MAX_STALL_S` | 5 V / 0.5 s | The mouth demo held −6 V for 0.5 s |
 | `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.08 s | Guess |
 | `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −35 / −40 / −10 dBFS | Guess; depends on Boss's mic gain |
 | `MOUTH_LEAD_MS` | 0 ms | Tune by eye |
 | `MAX_BACKLOG_MS` | 200 ms | Guess |
 
-All live together as constants in one module.
+All live together in `TalkSettings`. Every duration must be a whole
+number of 20 ms ticks (as the 50 ms steps rule for the motor profiles).
 
 ### Tuning tool (`lipsync_wav.py`)
 
@@ -246,7 +260,7 @@ would drive the chip and the sound card), using the same check as
 
 | Failure | Behavior |
 |---|---|
-| Mumble server down, or bot disconnected | Bot reconnects (pymumble's reconnect if the spike proves it works, else our own retry every 5 s); the loop keeps playing silence, mouth closed, watchdog pinged. One log line per disconnect and per reconnect. |
+| Mumble server down, or bot disconnected | Bot reconnects (pymumble's `reconnect=True`, every 10 s, if the spike proves it works); the loop keeps playing silence, mouth closed, watchdog pinged. One log line per disconnect and per reconnect. |
 | Gap in voice | Silence is played; the state machine closes the mouth. |
 | Backlog | Dropped per `MAX_BACKLOG_MS`, logged. |
 | ALSA underrun (xrun) | Recover the device, log, continue. |
@@ -335,23 +349,36 @@ The app must come back on its own from any failure, without a human:
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
+- `motor_test/pcm.py` (domain, pure): the frame format (48 kHz mono
+  16-bit, 20 ms = 960 samples), `silence()` and `mix(frames)`.
 - `motor_test/envelope.py` (domain, pure): frame RMS in dBFS and the
   attack/release smoother.
-- `motor_test/lip_sync.py` (domain, pure): the mouth state machine and its
-  settings; level in, signed volts out, one call per tick.
-- `motor_test/ports.py` gains `VoiceSource` (delivers PCM frames to a
-  callback; connect and disconnect) and `AudioSink` (write one frame,
-  blocking; close).
-- `motor_test/mumble_voice.py` (adapter): the pymumble bot, a
-  `VoiceSource`. The only module that imports pymumble.
+- `motor_test/talk_settings.py` (domain, pure): `TalkSettings`, every
+  tunable in the table above with its starting value, validated.
+- `motor_test/lip_sync.py` (domain, pure): the mouth state machine; level
+  in, signed volts out, one call per tick.
+- `motor_test/frame_queue.py` (domain): `FrameQueue`, a thread-safe,
+  bounded queue that cuts arbitrary PCM chunks into frames and drops the
+  oldest past its limit.
+- `motor_test/ports.py` gains `VoiceSource` (`take_frames()`: the next
+  frame from each voice currently sounding) and `AudioSink` (`write(frame)`,
+  blocking; `close()`).
+- `motor_test/mumble_voice.py` (adapter): a `VoiceSource` with one
+  `FrameQueue` per Mumble talker, fed by pymumble's sound callback, plus
+  `connect_mumble()`. The only module that imports pymumble.
+- `motor_test/wav_source.py` (adapter): a `VoiceSource` playing one WAV
+  file, a frame per tick.
 - `motor_test/alsa_sink.py` (adapter): an `AudioSink` on ALSA card 0 via
-  `python3-alsaaudio`, recovering from underruns. The only module that
+  `python3-alsaaudio`, riding through underruns. The only module that
   imports `alsaaudio`.
-- `motor_test/talk_loop.py` (application): the talk loop above, taking
-  the voice queue, an `AudioSink`, the two `MotorOutput`s, the settings
-  and an `on_second` callback; always brakes both motors on exit.
-- `lipsync_wav.py`: composition root for the tuning tool (WAV frames in
-  place of Mumble).
+- `motor_test/service_guard.py`: `app_is_running()`, shared by
+  `calibrate.py` and `lipsync_wav.py`.
+- `motor_test/talk_loop.py` (application): `run_talk_loop`, taking the
+  sources, an `AudioSink`, the mouth motor, the idle motors, the settings,
+  the supply voltage, an `on_second` callback and an `until` check; always
+  brakes every motor and closes the sink on exit.
+- `lipsync_wav.py`: composition root for the tuning tool (a `WavSource`
+  in place of Mumble).
 - `main.py`: builds one `Pca9685`, both motors, the ALSA sink and the
   Mumble bot, installs a SIGTERM handler that raises `SystemExit` so the
   loop's cleanup runs, sends `READY=1` after init, and runs the talk loop
@@ -414,9 +441,13 @@ The app must come back on its own from any failure, without a human:
   - Lip sync: gate and hysteresis, both ends of the proportional range,
     the opening slew limit, close pulse length, a syllable interrupting a
     close, and the stall guard engaging and releasing.
+  - `FrameQueue` cuts chunks of any length into whole frames, keeps a
+    partial frame for the next chunk, drops the oldest frames past its
+    limit and reports how many, and stays consistent under concurrent puts.
+    `MumbleVoice` keeps talkers apart and logs dropped backlog.
   - Talk loop, with recording fakes for `AudioSink` and `MotorOutput`
     (checking our sequencing, not a mock's behavior): silence when the
-    queues are empty, two sources mixed and clipped, backlog trimmed, mouth
+    sources are quiet, two sources mixed and clipped, mouth
     lead delays audio by whole ticks, `on_second` every 50 ticks, both
     motors braked on an exception.
   - `jack.service` runs the venv's Python and loads `/etc/jack/jack.env`;
@@ -444,7 +475,9 @@ and are not tied to any login session or human user.
   `--system-site-packages` so apt's `python3-smbus2`, `python3-alsaaudio`,
   `python3-opuslib` and `python3-protobuf` are used. Only pymumble comes
   from pip, pinned in `requirements-pi.txt` to the exact version or git
-  commit the spike proved.
+  commit the spike proved, and installed with `--no-deps` (pymumble pins
+  protobuf 3.20.3; apt's 3.21.12 is used instead, if the spike shows it
+  works).
 - **`jack-update.service` + `jack-update.timer`:** runs as root every 60 s
   (`OnBootSec=60`, `OnUnitActiveSec=60`). Executes
   `/opt/jack/deploy/jack-update.sh`.
