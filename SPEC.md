@@ -205,6 +205,13 @@ and are not tied to any login session or human user.
   enables I2C (`raspi-config nonint do_i2c 0`), creates the `jack` system
   user, clones to `/opt/jack`, installs and enables the units, and says
   to reboot so I2C takes effect.
+- **Deploy signal:** after a deploy (only when a new commit landed),
+  `jack-update.sh` runs `deploy/flash-leds.sh`, which blinks the Pi 4's
+  onboard ACT (green) and PWR (red) LEDs with the kernel `timer` trigger
+  (100 ms on, 100 ms off) for 10 s, then restores each LED's previous
+  trigger (normally `mmc0` and `default-on`), also when cut short. A
+  flash failure is logged but does not fail the deploy. `JACK_LEDS_DIR`
+  (default `/sys/class/leds`) lets tests use a fake LED directory.
 - **Logs:** `journalctl -u jack -u jack-update`.
 - **Accepted risk:** `jack-update.service` runs
   `/opt/jack/deploy/jack-update.sh` as root, and that script is replaced

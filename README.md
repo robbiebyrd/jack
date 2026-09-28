@@ -43,6 +43,8 @@ ssh -t 10.10.0.54 sudo systemctl start jack  # resume the sequence
 Negative volts open the mouth (0 V closed, about −6 V open). Moves are capped
 at 3 s and always end braked.
 
+After each deploy, the Pi's green and red onboard LEDs blink for 10 s.
+
 ## Operate
 
 ```bash

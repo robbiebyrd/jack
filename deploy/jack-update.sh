@@ -22,6 +22,9 @@ main() {
   echo "Deploying $target (was $current)"
   git reset --hard --quiet "origin/$branch"
   systemctl try-restart "$service"
+  # Blink the onboard LEDs so someone at the bench can see a deploy landed.
+  # The code is already deployed, so a flash failure must not fail the run.
+  bash "$repo_dir/deploy/flash-leds.sh" || echo "LED flash failed; deploy of $target succeeded"
 }
 
 main "$@"
