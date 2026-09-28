@@ -18,7 +18,7 @@ from motor_test.alsa_sink import open_alsa_sink
 from motor_test.pca9685 import Pca9685
 from motor_test.pcm import TICKS_PER_SECOND
 from motor_test.service_guard import STOP_APP_FIRST, app_is_running
-from motor_test.talk_loop import run_talk_loop
+from motor_test.talk_loop import check_supply, run_talk_loop
 from motor_test.talk_settings import TalkSettings
 from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, Tb6612Motor
 from motor_test.wav_source import WavSource
@@ -63,6 +63,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         settings = settings_from_args(args)
+        check_supply(settings, SUPPLY_VOLTS)
         source = WavSource(args.wav)
     except (ValueError, OSError) as error:
         print(error, file=sys.stderr)

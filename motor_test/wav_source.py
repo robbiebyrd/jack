@@ -8,7 +8,10 @@ from motor_test.pcm import FRAME_BYTES, FRAME_SAMPLES, SAMPLE_BYTES, SAMPLE_RATE
 
 class WavSource:
     def __init__(self, path: str | Path):
-        self._wav = wave.open(str(path), "rb")
+        try:
+            self._wav = wave.open(str(path), "rb")
+        except (wave.Error, EOFError) as error:
+            raise ValueError(f"{path} is not a readable WAV file: {error}") from error
         found = (self._wav.getnchannels(), self._wav.getsampwidth(), self._wav.getframerate())
         if found != (1, SAMPLE_BYTES, SAMPLE_RATE_HZ):
             self._wav.close()

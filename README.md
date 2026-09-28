@@ -1,8 +1,9 @@
 # jack
 
 Raspberry Pi + Waveshare Motor Driver HAT driving an animatronic head's mouth
-(motor B). `main.py` moves the mouth as if speaking, in random phrases, with
-motor A off, and short-brakes both on exit. See `SPEC.md`.
+(motor B). `main.py` has Jack talk: it joins a Mumble server, plays the voice on the
+3.5 mm jack and moves the mouth with its loudness, with motor A off, and
+short-brakes both on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 
@@ -11,8 +12,9 @@ scp deploy/install.sh 10.10.0.54:
 ssh -t 10.10.0.54 sudo bash install.sh
 ```
 
-This installs git, enables I2C, creates the `jack` system user, clones to
-`/opt/jack`, and enables `jack.service` and `jack-update.timer`.
+This installs git, mumble-server and the audio packages, enables I2C, creates the `jack` system
+user and the pymumble venv (`/opt/jack-venv`), clones to `/opt/jack`, creates `/etc/jack/jack.env`,
+and enables `jack.service` and `jack-update.timer`.
 
 ## Deploys
 
@@ -20,9 +22,8 @@ Push to `main`. Within about 60 s the Pi runs `git reset --hard origin/main`
 in `/opt/jack` and restarts `jack.service`. Edits made on tracked files on the
 Pi are discarded; `git reset --hard` leaves untracked files in place.
 Changes to the unit files in `deploy/` are not reinstalled automatically.
-Re-run `install.sh` for those. A re-run does not restart an already-running
-app, so follow it with `sudo systemctl try-restart jack` to pick up unit
-changes.
+Re-run `install.sh` for those. A re-run restarts a running app (`systemctl try-restart`)
+so a changed unit takes effect.
 
 ## Self-recovery
 

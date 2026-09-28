@@ -39,7 +39,7 @@ def run_talk_loop(
     delayed_audio = deque(silence() for _ in range(settings.mouth_lead_ticks))
     ticks = 0
     try:
-        _check_supply(settings, supply_volts)
+        check_supply(settings, supply_volts)
         for motor in idle_motors:
             motor.drive(0)
         while not until():
@@ -56,7 +56,8 @@ def run_talk_loop(
         attempt_all([mouth.stop, *(motor.stop for motor in idle_motors), sink.close])
 
 
-def _check_supply(settings: TalkSettings, supply_volts: float) -> None:
+def check_supply(settings: TalkSettings, supply_volts: float) -> None:
+    """Reject settings that ask for more volts than the supply can produce, before any motion."""
     for name in ("open_max_v", "close_v"):
         if getattr(settings, name) > supply_volts:
             raise ValueError(f"{name} ({getattr(settings, name)} V) exceeds the {supply_volts} V supply")

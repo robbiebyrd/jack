@@ -26,3 +26,10 @@ def test_wrong_format_is_rejected_with_how_to_convert(tmp_path, channels, sample
     with pytest.raises(ValueError, match="mono 16-bit 48000 Hz") as error:
         WavSource(path)
     assert "afconvert" in str(error.value)
+
+
+def test_a_file_that_is_not_a_wav_is_rejected_as_unreadable(tmp_path):
+    path = tmp_path / "voice.wav"
+    path.write_bytes(b"not a wav")
+    with pytest.raises(ValueError, match="not a readable WAV"):
+        WavSource(path)

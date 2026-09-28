@@ -266,7 +266,8 @@ would drive the chip and the sound card), using the same check as
 | ALSA underrun (xrun) | Recover the device, log, continue. |
 | Other ALSA error, or I2C `OSError` | Propagates: both motors short-brake (`attempt_all`), the process exits, systemd restarts it (see Self-recovery). |
 | Loop hangs | Watchdog kills and restarts after 10 s; the motor holds its last duty until then (accepted, as today). |
-| SIGTERM | `SystemExit`: brake both motors, close ALSA, disconnect the bot. |
+| SIGTERM | `SystemExit`: brake both motors, close ALSA; the bot's daemon thread ends with the process, closing its connection. |
+| pymumble's thread dies (e.g. the server rejects the password) | The next once-a-second watchdog check sees it and exits; systemd restarts Jack after 5 s and it retries. |
 | `mumble-server` crashes | Its own unit restarts it; Jack sees a disconnect. |
 
 ## Self-recovery
@@ -382,14 +383,11 @@ The app must come back on its own from any failure, without a human:
 - `main.py`: builds one `Pca9685`, both motors, the ALSA sink and the
   Mumble bot, installs a SIGTERM handler that raises `SystemExit` so the
   loop's cleanup runs, sends `READY=1` after init, and runs the talk loop
-  with `on_second` sending `WATCHDOG=1`. `run_profiles_loop` and
+  with `on_second` the Mumble-aware watchdog callback (`WATCHDOG=1` while the
+  bot's thread lives, `SystemExit` once it has died). `run_profiles_loop` and
   `MOUTH_DEMO` are no longer used by `main.py`; they stay in the repo
   (Boss, 2026-09-28).
-- **Until the talk loop exists**, `main.py` plays random speech: it builds
-  one `Pca9685` and motors A and B and runs `run_generated_loop` with
-  `speaking_cycle(rng)` (motor A 0 V, motor B a fresh `random_phrase`),
-  pinging the watchdog after each phrase. `demo_cycle()` gives the fixed
-  `MOUTH_DEMO` instead.
+- `speaking_cycle(rng)` and `demo_cycle()` remain in `main.py` (Boss, 2026-09-28) for showing the mechanism without audio; `main()` no longer uses them.
 
 ## Testing
 

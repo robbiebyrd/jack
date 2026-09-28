@@ -1,5 +1,6 @@
 import random
 import signal
+import socket
 
 import pytest
 
@@ -18,6 +19,27 @@ def test_sigterm_handler_raises_system_exit_so_cleanup_runs():
 def test_watchdog_ping_reaches_systemd(notify_socket):
     main.ping_watchdog()
     assert notify_socket.recv(64) == b"WATCHDOG=1"
+
+
+class StandInClient:
+    def __init__(self, alive: bool):
+        self._alive = alive
+
+    def is_alive(self) -> bool:
+        return self._alive
+
+
+def test_watchdog_while_connected_pings_while_the_mumble_client_lives(notify_socket):
+    main.watchdog_while_connected(StandInClient(alive=True))()
+    assert notify_socket.recv(64) == b"WATCHDOG=1"
+
+
+def test_watchdog_while_connected_exits_without_pinging_once_the_mumble_client_died(notify_socket):
+    with pytest.raises(SystemExit) as exit_info:
+        main.watchdog_while_connected(StandInClient(alive=False))()
+    assert "Mumble" in str(exit_info.value.code)
+    with pytest.raises(socket.timeout):
+        notify_socket.recv(64)
 
 
 WATCHDOG_S = 10  # WatchdogSec in deploy/jack.service

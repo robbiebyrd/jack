@@ -3,7 +3,7 @@
 import os
 import random
 import signal
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from types import FrameType
 from typing import NoReturn
 
@@ -47,6 +47,22 @@ def ping_watchdog() -> None:
     notify("WATCHDOG=1")
 
 
+def watchdog_while_connected(mumble_client) -> Callable[[], None]:
+    """The talk loop's once-a-second callback: ping the watchdog only while the Mumble client thread lives.
+
+    pymumble's thread ends for good when the server rejects the login, so a dead one must restart the app.
+    """
+
+    def check() -> None:
+        if not mumble_client.is_alive():
+            raise SystemExit(
+                "Mumble client stopped (e.g. the server rejected the password); exiting so systemd restarts Jack"
+            )
+        ping_watchdog()
+
+    return check
+
+
 def speaking_cycle(rng: random.Random) -> list[list[int]]:
     """One random talking phrase on the mouth, with motor A off. Counts are [motor A, motor B]."""
     return _mouth_only(random_phrase(rng))
@@ -77,7 +93,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, exit_on_sigterm)
     settings = TalkSettings()
     voice = MumbleVoice(settings.max_backlog_frames, print)
-    connect_mumble(voice, MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, mumble_password())
+    mumble_client = connect_mumble(voice, MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, mumble_password())
     with SMBus(I2C_BUS) as bus:
         chip = Pca9685(bus, PCA9685_ADDRESS, PWM_FREQ_HZ)
         sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
@@ -90,7 +106,7 @@ def main() -> None:
             [Tb6612Motor(chip, MOTOR_A)],
             settings,
             SUPPLY_VOLTS,
-            ping_watchdog,
+            watchdog_while_connected(mumble_client),
         )
 
 

@@ -31,6 +31,18 @@ def test_impossible_override_is_rejected_before_touching_hardware(monkeypatch, c
     assert "open_max_v" in capsys.readouterr().err
 
 
+def test_override_above_the_supply_is_rejected_before_touching_hardware(monkeypatch, capsys):
+    monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
+    assert lipsync_wav.main(["voice.wav", "--open-max-v", "20"]) == 2
+    assert "supply" in capsys.readouterr().err
+
+
+def test_missing_wav_is_rejected_before_touching_hardware(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
+    assert lipsync_wav.main([str(tmp_path / "missing.wav")]) == 2
+    assert "missing.wav" in capsys.readouterr().err
+
+
 def test_wrong_format_wav_is_rejected_before_touching_hardware(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
     path = write_wav(tmp_path / "stereo.wav", bytes(40), channels=2)
