@@ -34,11 +34,13 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 
 ## Smoke test behavior (`main.py`)
 
-1. On start, drive **both** motor channels forward together: motor A
-   (terminals MA1 +, MA2 −; AIN1 = 0, AIN2 = 1) and motor B (terminals
-   MB1 +, MB2 −; BIN1 = 0, BIN2 = 1).
-2. Ramp average voltage 0 V → 6 V over 1 s, then 6 V → 0 V over 1 s
-   (2 s total), in 50 evenly spaced steps (40 ms each).
+1. On start, drive **both** motor channels together. Motor A runs
+   forward (AIN1 = 0, AIN2 = 1), so MA1 is positive relative to MA2.
+   Motor B is built with `reverse=True` (BIN1 = 1, BIN2 = 0), so MB1 is
+   *negative* relative to MB2.
+2. Ramp the average voltage magnitude 0 V → 6 V over 1 s, then 6 V → 0 V
+   over 1 s (2 s total), in 50 evenly spaced steps (40 ms each). Measured
+   MA1 − MA2 goes 0 → +6 V → 0; measured MB1 − MB2 goes 0 → −6 V → 0.
    - With 12 V supply, 6 V = 50% duty = PCA9685 count 2048 of 4096.
 3. Repeat the 2 s cycle back-to-back, with no pause, until the process
    is stopped.
@@ -171,7 +173,7 @@ and are not tied to any login session or human user.
 
 ## Out of scope
 
-- Real application behavior. The smoke test drives forward only;
-  `set_backward()` exists and is tested but is not used.
+- Real application behavior. The smoke test never changes direction
+  mid-run; `set_backward()` exists and is tested but is not used.
 - The TB6612FNG `STBY` pin. Waveshare's sample code never drives it.
 - Push-based deploys (webhooks, self-hosted runners).

@@ -16,6 +16,12 @@ class RecordingBus:
         return self.registers.get(register, 0)
 
 
+def off_count(bus, channel):
+    """Decode the 12-bit OFF count the chip holds for `channel`."""
+    base = 0x06 + 4 * channel
+    return bus.registers[base + 2] | (bus.registers[base + 3] << 8)
+
+
 class RecordingMotor:
     """MotorOutput that records the commands it receives, in order."""
 

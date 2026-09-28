@@ -3,6 +3,10 @@ import signal
 import pytest
 
 import main
+from motor_test.pca9685 import Pca9685
+from motor_test.ramp import PWM_MAX_COUNT
+from motor_test.tb6612_motor import MOTOR_A, MOTOR_B
+from tests.fakes import RecordingBus, off_count
 
 
 def test_sigterm_handler_raises_system_exit_so_cleanup_runs():
@@ -27,5 +31,12 @@ def test_configured_ramp_peaks_at_six_volts_over_a_two_second_cycle():
     assert main.CYCLE_S / main.STEPS_PER_CYCLE == pytest.approx(0.04)
 
 
-def test_both_hat_channels_are_driven():
-    assert main.DRIVEN_CHANNELS == (main.MOTOR_A, main.MOTOR_B)
+def test_motor_a_ramps_positive_and_motor_b_ramps_negative():
+    bus = RecordingBus()
+    motors = main.build_motors(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
+    motors.set_forward()
+    motors.set_duty(2048)
+    assert (off_count(bus, MOTOR_A.in1), off_count(bus, MOTOR_A.in2)) == (0, PWM_MAX_COUNT)
+    assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (PWM_MAX_COUNT, 0)
+    assert off_count(bus, MOTOR_A.pwm) == 2048
+    assert off_count(bus, MOTOR_B.pwm) == 2048

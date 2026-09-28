@@ -3,7 +3,7 @@ import pytest
 from motor_test.pca9685 import Pca9685
 from motor_test.ramp import PWM_MAX_COUNT
 from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, MotorChannels, Tb6612Motor
-from tests.fakes import RecordingBus
+from tests.fakes import RecordingBus, off_count
 
 ADDRESS = 0x40
 
@@ -27,12 +27,6 @@ def make_motor(channels, reverse=False):
     chip = Pca9685(bus, ADDRESS, pwm_freq_hz=50)
     bus.writes.clear()
     return bus, chip, Tb6612Motor(chip, channels, reverse=reverse)
-
-
-def off_count(bus, channel):
-    """Decode the 12-bit OFF count the chip holds for `channel`."""
-    base = 0x06 + 4 * channel
-    return bus.registers[base + 2] | (bus.registers[base + 3] << 8)
 
 
 def test_channel_mapping_matches_waveshare_sample_code():
