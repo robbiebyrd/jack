@@ -37,9 +37,16 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 Purpose: find which voltages move the animatronic head's mouth (driven by
 motor B) and how.
 
-Observed by Boss (2026-09-28): the mouth moves for motor B voltages between
-0 V and −6 V. 0 V is closed and −6 V is open, and a spring closes the mouth
-on its own, so the voltage sets how far the motor pushes against the spring.
+Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
+
+| Pose | How to reach it | Held without power? |
+|---|---|---|
+| Closed | +1 V for 0.25 s closes it from any pose; +0.5 V is enough from relaxed open | yes |
+| Relaxed open | apply −2 V, then release: the mouth settles here | yes |
+| Fully open | −6 V | no: only while −6 V is held |
+
+Holding a voltage keeps the motor running against resistance (stalled), so
+prefer the closed and relaxed-open poses and keep fully open short.
 
 1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
    its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
