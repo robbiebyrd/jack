@@ -1,6 +1,6 @@
 """MotorOutput adapter for one TB6612FNG H-bridge channel driven through the PCA9685.
 
-Short brake, backward, and the reverse-polarity flag are borrowed from
+Signed drive, short brake, and the reverse-polarity flag are borrowed from
 https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT).
 """
 
@@ -34,15 +34,22 @@ class Tb6612Motor:
         self._chip = chip
         self._channels = channels
         self._reverse = reverse
+        # Direction the IN pins currently hold; None when unknown or braked.
+        self._forward: bool | None = None
 
-    def set_forward(self) -> None:
-        self._set_direction(forward=not self._reverse)
+    def drive(self, count: int) -> None:
+        """Run at duty `abs(count)`, forward for count >= 0 and backward for count < 0.
 
-    def set_backward(self) -> None:
-        self._set_direction(forward=self._reverse)
-
-    def set_duty(self, count: int) -> None:
-        self._chip.set_off_count(self._channels.pwm, count)
+        Direction pins are rewritten only when the direction changes, which keeps
+        each ramp step to a single four-register duty write.
+        """
+        if abs(count) > PWM_MAX_COUNT:
+            raise ValueError(f"drive count must be between -{PWM_MAX_COUNT} and {PWM_MAX_COUNT}, got {count}")
+        forward = count >= 0
+        if forward != self._forward:
+            self._set_direction(forward=forward != self._reverse)
+            self._forward = forward
+        self._set_duty(abs(count))
 
     def stop(self) -> None:
         """Short brake: zero the duty, then drive IN1 and IN2 high so the TB6612FNG shorts the motor leads.
@@ -50,13 +57,17 @@ class Tb6612Motor:
         Each write is attempted even if an earlier one raises, so a transient I2C
         error zeroing the duty doesn't skip the brake pins.
         """
+        self._forward = None
         attempt_all(
             [
-                lambda: self.set_duty(0),
+                lambda: self._set_duty(0),
                 lambda: self._chip.set_off_count(self._channels.in1, HIGH),
                 lambda: self._chip.set_off_count(self._channels.in2, HIGH),
             ]
         )
+
+    def _set_duty(self, count: int) -> None:
+        self._chip.set_off_count(self._channels.pwm, count)
 
     def _set_direction(self, forward: bool) -> None:
         # Waveshare's "forward" is IN1 low, IN2 high.

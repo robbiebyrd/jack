@@ -28,11 +28,8 @@ class RecordingMotor:
     def __init__(self):
         self.calls = []
 
-    def set_forward(self):
-        self.calls.append(("forward",))
-
-    def set_duty(self, count):
-        self.calls.append(("duty", count))
+    def drive(self, count):
+        self.calls.append(("drive", count))
 
     def stop(self):
         self.calls.append(("stop",))

@@ -25,18 +25,26 @@ def test_cycle_is_well_inside_the_watchdog_timeout():
     assert main.CYCLE_S * 2 < watchdog_s
 
 
-def test_configured_ramp_peaks_at_six_volts_over_a_two_second_cycle():
-    counts = main.ramp_profile(main.PEAK_VOLTS, main.SUPPLY_VOLTS, main.STEPS_PER_CYCLE)
-    assert max(counts) == 2048
+def test_cycle_is_two_seconds_of_40_ms_steps():
     assert main.CYCLE_S / main.STEPS_PER_CYCLE == pytest.approx(0.04)
 
 
-def test_motor_a_ramps_positive_and_motor_b_ramps_negative():
+def play_step(profiles, step):
+    for motor, counts in profiles:
+        motor.drive(counts[step])
+
+
+def test_motor_a_ramps_to_plus_six_while_motor_b_squares_between_plus_and_minus_three():
     bus = RecordingBus()
-    motors = main.build_motors(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
-    motors.set_forward()
-    motors.set_duty(2048)
+    profiles = main.build_profiles(Pca9685(bus, main.PCA9685_ADDRESS, main.PWM_FREQ_HZ))
+
+    play_step(profiles, 0)
+    assert off_count(bus, MOTOR_A.pwm) == 0
+    assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (0, PWM_MAX_COUNT)
+    assert off_count(bus, MOTOR_B.pwm) == 1024  # +3 V of 12 V
+
+    play_step(profiles, main.STEPS_PER_CYCLE // 2)
     assert (off_count(bus, MOTOR_A.in1), off_count(bus, MOTOR_A.in2)) == (0, PWM_MAX_COUNT)
+    assert off_count(bus, MOTOR_A.pwm) == 2048  # +6 V peak
     assert (off_count(bus, MOTOR_B.in1), off_count(bus, MOTOR_B.in2)) == (PWM_MAX_COUNT, 0)
-    assert off_count(bus, MOTOR_A.pwm) == 2048
-    assert off_count(bus, MOTOR_B.pwm) == 2048
+    assert off_count(bus, MOTOR_B.pwm) == 1024  # -3 V

@@ -1,4 +1,7 @@
-"""Triangle voltage ramps expressed as PCA9685 12-bit PWM duty counts."""
+"""Voltage waveforms expressed as signed PCA9685 12-bit PWM duty counts.
+
+A negative count means the motor is driven backward at that duty.
+"""
 
 PWM_RESOLUTION = 4096
 # A count of 4096 sets the PCA9685 "full off" bit, so 4095 is the highest usable duty.
@@ -11,12 +14,33 @@ def ramp_profile(peak_volts: float, supply_volts: float, steps: int) -> list[int
     The cycle starts at 0 and peaks at index steps // 2. It omits the closing 0
     so cycles can be played back-to-back without repeating a sample.
     """
-    if supply_volts <= 0:
-        raise ValueError(f"supply_volts must be positive, got {supply_volts}")
+    _check_cycle(supply_volts, steps)
     if not 0 <= peak_volts <= supply_volts:
         raise ValueError(f"peak_volts must be between 0 and {supply_volts}, got {peak_volts}")
+
+    peak_count = _volts_to_count(peak_volts, supply_volts)
+    return [round(peak_count * (1 - abs(2 * i / steps - 1))) for i in range(steps)]
+
+
+def square_profile(high_volts: float, low_volts: float, supply_volts: float, steps: int) -> list[int]:
+    """Return one cycle that holds `high_volts` for the first half, then `low_volts` for the second."""
+    _check_cycle(supply_volts, steps)
+    for name, volts in (("high_volts", high_volts), ("low_volts", low_volts)):
+        if not -supply_volts <= volts <= supply_volts:
+            raise ValueError(f"{name} must be between -{supply_volts} and {supply_volts}, got {volts}")
+
+    half = steps // 2
+    return [_volts_to_count(high_volts, supply_volts)] * half + [_volts_to_count(low_volts, supply_volts)] * half
+
+
+def _check_cycle(supply_volts: float, steps: int) -> None:
+    if supply_volts <= 0:
+        raise ValueError(f"supply_volts must be positive, got {supply_volts}")
     if steps < 2 or steps % 2:
         raise ValueError(f"steps must be an even number >= 2, got {steps}")
 
-    peak_count = min(round(peak_volts / supply_volts * PWM_RESOLUTION), PWM_MAX_COUNT)
-    return [round(peak_count * (1 - abs(2 * i / steps - 1))) for i in range(steps)]
+
+def _volts_to_count(volts: float, supply_volts: float) -> int:
+    """Signed duty count for `volts`, capped so its magnitude never reaches the full-off bit."""
+    count = min(round(abs(volts) / supply_volts * PWM_RESOLUTION), PWM_MAX_COUNT)
+    return count if volts >= 0 else -count

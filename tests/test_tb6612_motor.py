@@ -35,49 +35,71 @@ def test_channel_mapping_matches_waveshare_sample_code():
 
 
 @pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])
-def test_forward_drives_in1_low_and_in2_high(channels):
+def test_positive_drive_runs_forward_at_that_duty(channels):
     bus, _, motor = make_motor(channels)
-    motor.set_forward()
-    assert off_count(bus, channels.in1) == 0
-    assert off_count(bus, channels.in2) == PWM_MAX_COUNT
+    motor.drive(1024)
+    assert (off_count(bus, channels.in1), off_count(bus, channels.in2)) == (0, PWM_MAX_COUNT)
+    assert off_count(bus, channels.pwm) == 1024
 
 
 @pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])
-def test_backward_drives_in1_high_and_in2_low(channels):
+def test_negative_drive_runs_backward_at_that_duty(channels):
     bus, _, motor = make_motor(channels)
-    motor.set_backward()
-    assert off_count(bus, channels.in1) == PWM_MAX_COUNT
-    assert off_count(bus, channels.in2) == 0
+    motor.drive(-1024)
+    assert (off_count(bus, channels.in1), off_count(bus, channels.in2)) == (PWM_MAX_COUNT, 0)
+    assert off_count(bus, channels.pwm) == 1024
+
+
+def test_zero_drive_holds_forward_with_no_duty():
+    bus, _, motor = make_motor(MOTOR_A)
+    motor.drive(0)
+    assert (off_count(bus, 1), off_count(bus, 2)) == (0, PWM_MAX_COUNT)
+    assert off_count(bus, 0) == 0
 
 
 def test_reverse_flag_swaps_forward_and_backward():
     bus, _, motor = make_motor(MOTOR_B, reverse=True)
-    motor.set_forward()
+    motor.drive(1024)
     assert (off_count(bus, 3), off_count(bus, 4)) == (PWM_MAX_COUNT, 0)
-    motor.set_backward()
+    motor.drive(-1024)
     assert (off_count(bus, 3), off_count(bus, 4)) == (0, PWM_MAX_COUNT)
 
 
-@pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])
-def test_set_duty_drives_the_motors_pwm_channel(channels):
-    bus, _, motor = make_motor(channels)
-    motor.set_duty(2048)
-    assert off_count(bus, channels.pwm) == 2048
+def test_direction_pins_are_written_only_when_the_direction_changes():
+    bus, _, motor = make_motor(MOTOR_B)
+    motor.drive(1024)
+    bus.writes.clear()
+    motor.drive(2048)
+    assert [register for _, register, _ in bus.writes] == [0x1A, 0x1B, 0x1C, 0x1D]
+    bus.writes.clear()
+    motor.drive(-1024)
+    assert (off_count(bus, 3), off_count(bus, 4)) == (PWM_MAX_COUNT, 0)
+    assert len(bus.writes) == 12
+
+
+def test_drive_after_stop_restores_the_direction_pins():
+    bus, _, motor = make_motor(MOTOR_B)
+    motor.drive(1024)
+    motor.stop()
+    motor.drive(1024)
+    assert (off_count(bus, 3), off_count(bus, 4)) == (0, PWM_MAX_COUNT)
+    assert off_count(bus, 5) == 1024
 
 
 def test_two_motors_on_one_chip_keep_separate_channels():
     bus, chip, motor_a = make_motor(MOTOR_A)
     motor_b = Tb6612Motor(chip, MOTOR_B)
-    motor_a.set_duty(2048)
-    motor_b.set_duty(1000)
+    motor_a.drive(2048)
+    motor_b.drive(-1000)
     assert off_count(bus, 0) == 2048
     assert off_count(bus, 5) == 1000
+    assert (off_count(bus, 1), off_count(bus, 2)) == (0, PWM_MAX_COUNT)
+    assert (off_count(bus, 3), off_count(bus, 4)) == (PWM_MAX_COUNT, 0)
 
 
 def test_stop_zeroes_duty_before_short_braking():
     bus, _, motor = make_motor(MOTOR_B)
-    motor.set_forward()
-    motor.set_duty(2048)
+    motor.drive(2048)
     bus.writes.clear()
     motor.stop()
     assert bus.writes[:4] == [
@@ -101,8 +123,9 @@ def test_stop_still_short_brakes_when_zeroing_duty_fails():
     assert off_count(bus, MOTOR_B.in2) == PWM_MAX_COUNT
 
 
-def test_out_of_range_duty_is_rejected():
+@pytest.mark.parametrize("count", [4096, -4096])
+def test_out_of_range_drive_is_rejected_without_writing(count):
     bus, _, motor = make_motor(MOTOR_A)
     with pytest.raises(ValueError):
-        motor.set_duty(4096)
+        motor.drive(count)
     assert bus.writes == []

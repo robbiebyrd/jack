@@ -34,17 +34,20 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 
 ## Smoke test behavior (`main.py`)
 
-1. On start, drive **both** motor channels together. Motor A runs
-   forward (AIN1 = 0, AIN2 = 1), so MA1 is positive relative to MA2.
-   Motor B is built with `reverse=True` (BIN1 = 1, BIN2 = 0), so MB1 is
-   *negative* relative to MB2.
-2. Ramp the average voltage magnitude 0 V → 6 V over 1 s, then 6 V → 0 V
-   over 1 s (2 s total), in 50 evenly spaced steps (40 ms each). Measured
-   MA1 − MA2 goes 0 → +6 V → 0; measured MB1 − MB2 goes 0 → −6 V → 0.
+1. Drive **both** motor channels in lockstep through a 2 s cycle of 50
+   steps (40 ms each). Each motor has its own signed profile; positive
+   means forward (IN1 = 0, IN2 = 1, so terminal 1 is positive), negative
+   means backward (IN1 = 1, IN2 = 0).
+2. **Motor A** ramps its average voltage 0 V → +6 V over 1 s, then
+   +6 V → 0 V over 1 s: measured MA1 − MA2 goes 0 → +6 V → 0.
    - With 12 V supply, 6 V = 50% duty = PCA9685 count 2048 of 4096.
-3. Repeat the 2 s cycle back-to-back, with no pause, until the process
+3. **Motor B** holds +3 V for the first 1 s, then switches straight to
+   −3 V for the second 1 s (no ramp): measured MB1 − MB2 is a ±3 V square
+   wave. It switches to −3 V at the step where motor A peaks at +6 V.
+   - With 12 V supply, 3 V = 25% duty = count 1024; −3 V is 1024 backward.
+4. Repeat the 2 s cycle back-to-back, with no pause, until the process
    is stopped.
-4. On SIGTERM or any exception, **short-brake** both motors before exiting:
+5. On SIGTERM or any exception, **short-brake** both motors before exiting:
    duty 0, then IN1 = IN2 = high (the TB6612FNG shorts the motor leads).
    A failure braking one motor must not prevent braking the other.
 
@@ -72,15 +75,17 @@ The app must come back on its own from any failure, without a human:
 
 ## Code structure (hexagonal)
 
-- `motor_test/ramp.py` (domain, pure): `ramp_profile(peak_volts,
-  supply_volts, steps)` returns one cycle of 12-bit duty counts for a
-  0 → peak → 0 triangle ramp. The cycle starts at 0, peaks at
-  `steps // 2`, and omits the closing 0 so cycles chain seamlessly. It
-  raises `ValueError` for a non-positive supply, a peak outside
-  0..supply, or an odd or too-small step count. The peak is capped at
-  4095 (4096 would set the PCA9685 full-off bit).
-- `motor_test/ports.py`: the `MotorOutput` protocol, with `set_forward()`,
-  `set_duty(count)` and `stop()`.
+- `motor_test/ramp.py` (domain, pure): waveforms as signed 12-bit duty
+  counts (negative = backward). `ramp_profile(peak_volts, supply_volts,
+  steps)` is one cycle of a 0 → peak → 0 triangle that starts at 0, peaks
+  at `steps // 2`, and omits the closing 0 so cycles chain seamlessly.
+  `square_profile(high_volts, low_volts, supply_volts, steps)` holds
+  `high_volts` for the first half and `low_volts` for the second. Both
+  raise `ValueError` for a non-positive supply, a voltage outside the
+  supply range, or an odd or too-small step count. Magnitudes cap at 4095
+  (4096 would set the PCA9685 full-off bit).
+- `motor_test/ports.py`: the `MotorOutput` protocol, with
+  `drive(count)` (signed) and `stop()`.
 - `motor_test/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
   the PWM chip, created once and shared by both motors. Register logic
   follows Waveshare's `PCA9685.py`, writing 12-bit counts directly
@@ -89,25 +94,30 @@ The app must come back on its own from any failure, without a human:
 - `motor_test/tb6612_motor.py` (adapter): `Tb6612Motor(chip, channels,
   reverse=False)`, a `MotorOutput` for one TB6612FNG channel.
   `MotorChannels(pwm, in1, in2)`, with `MOTOR_A = (0, 1, 2)` and
-  `MOTOR_B = (5, 3, 4)`. Methods `set_forward()`, `set_backward()`,
-  `set_duty(count)`, and `stop()` (short brake). `reverse=True` swaps the
-  direction for a motor wired with flipped polarity. Short brake, reverse
-  and backward are borrowed from
+  `MOTOR_B = (5, 3, 4)`. `drive(count)` runs at duty `abs(count)`,
+  forward for count ≥ 0 and backward below 0, and rewrites the direction
+  pins only when the direction changes. `stop()` short-brakes.
+  `reverse=True` swaps the direction for a motor wired with flipped
+  polarity. Signed drive, short brake and reverse are borrowed from
   https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT). That
   library drives TB6612 pins from Pi GPIO, which this HAT does not do, so
   only the ideas are borrowed.
-- `motor_test/motor_group.py` (application): `MotorGroup(motors)`, a
-  `MotorOutput` that sends each command to every motor. `stop()` attempts
-  every motor, then re-raises the first failure.
-- `motor_test/smoke_test.py` (application): `run_ramp_loop(motor,
-  counts, step_s, sleep, on_cycle)` sets direction, plays the counts cycle
-  after cycle forever, calls `on_cycle()` after each completed cycle, and
-  always stops the motor when the loop exits (exception or SIGTERM).
+- `motor_test/attempt_all.py`: `attempt_all(actions)` runs every action
+  even if an earlier one raises, then re-raises the first failure. Used
+  wherever braking must not be skipped.
+- `motor_test/smoke_test.py` (application): `run_profiles_loop(profiles,
+  step_s, sleep, on_cycle)` takes `(motor, counts)` pairs of equal length.
+  Step i drives every motor with its i-th count, then waits `step_s`; it
+  repeats forever, calls `on_cycle()` after each completed cycle, and
+  always stops every motor when the loop exits (exception or SIGTERM),
+  even if stopping one fails.
 - `motor_test/systemd_notify.py` (adapter): `notify(message)` sends one
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
-- `main.py`: builds one `Pca9685` and a `MotorGroup` of motors A and B, wires them to the ramp loop, installs a SIGTERM handler that
+- `main.py`: builds one `Pca9685`, pairs motor A with its ramp and motor B
+  with its square wave (`build_profiles`), wires them to the profile loop,
+  installs a SIGTERM handler that
   raises `SystemExit` so the loop's cleanup runs, sends `READY=1` after
   motor init, and starts the loop with `on_cycle` sending `WATCHDOG=1`.
 
@@ -117,13 +127,16 @@ The app must come back on its own from any failure, without a human:
   application layers:
   - Ramp starts at 0, peaks at 2048 for 6 V/12 V at index `steps // 2`,
     is symmetric, and has the requested number of steps. A full-supply
-    peak caps at 4095.
+    peak caps at 4095. Square is +1024 for the first half and −1024 for
+    the second for ±3 V/12 V, and caps at ±4095.
   - Invalid inputs raise `ValueError`.
-  - `run_ramp_loop` sets forward before driving, plays every count in
-    order, repeats the cycle, and stops the motor when interrupted
-    (the test's `sleep` raises after N steps to end the loop). This uses a recording fake
-    `MotorOutput`, which checks our sequencing, not a mock's behavior.
-  - `run_ramp_loop` calls `on_cycle` exactly once per completed cycle.
+  - `run_profiles_loop` drives each motor with its own profile in
+    lockstep, repeats the cycle, stops every motor when interrupted
+    (even if one stop fails), and rejects empty or mismatched profiles
+    (the test's `sleep` raises after N steps to end the loop). This uses a
+    recording fake `MotorOutput`, which checks our sequencing, not a
+    mock's behavior.
+  - `run_profiles_loop` calls `on_cycle` exactly once per completed cycle.
   - `notify` delivers the exact message to a real Unix datagram socket,
     does nothing without `NOTIFY_SOCKET`, and maps `@name` to an abstract
     address.
@@ -133,11 +146,12 @@ The app must come back on its own from any failure, without a human:
   running again with no human action.
   - `Pca9685` writes the Waveshare init sequence and exact channel
     registers (recording in-memory bus), and rejects out-of-range counts.
-  - `Tb6612Motor` forward, backward, the reverse flag, duty on the right
-    PWM channel for A and B, and short brake (duty zeroed before
-    IN1 = IN2 = high).
-  - `MotorGroup` fans out commands and brakes every motor even when one
-    fails.
+  - `Tb6612Motor.drive` forward, backward, the reverse flag, duty on the
+    right PWM channel for A and B, direction pins rewritten only on a
+    direction change, and short brake (duty zeroed before IN1 = IN2 = high,
+    still attempted if zeroing fails).
+  - `main.build_profiles` puts motor A at +6 V and motor B at −3 V at the
+    half-cycle.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.
@@ -173,7 +187,6 @@ and are not tied to any login session or human user.
 
 ## Out of scope
 
-- Real application behavior. The smoke test never changes direction
-  mid-run; `set_backward()` exists and is tested but is not used.
+- Real application behavior beyond this smoke test.
 - The TB6612FNG `STBY` pin. Waveshare's sample code never drives it.
 - Push-based deploys (webhooks, self-hosted runners).
