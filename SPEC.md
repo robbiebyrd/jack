@@ -39,8 +39,8 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 2. Ramp average voltage 0 V → 6 V over 1 s, then 6 V → 0 V over 1 s
    (2 s total), in 50 evenly spaced steps (40 ms each).
    - With 12 V supply, 6 V = 50% duty = PCA9685 count 2048 of 4096.
-3. Stop motor B (duty 0) and stay alive idle, so systemd does not
-   restart it and repeat the test. The test runs once per process start.
+3. Repeat the 2 s cycle back-to-back, with no pause, until the process
+   is stopped.
 4. On SIGTERM or any exception, set motor B duty to 0 before exiting.
 
 ## Code structure (hexagonal)
@@ -55,11 +55,12 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
   TB6612FNG channel through the PCA9685 over smbus2. Register logic follows
   Waveshare's `PCA9685.py`, writing 12-bit counts directly (Waveshare's
   `setDutycycle` scales by 40 and never reaches the full 4096).
-- `motor_test/smoke_test.py` (application): `run_ramp(motor, counts,
-  step_s, sleep)` sets direction, plays the counts, and always stops the
-  motor on exit.
-- `main.py`: wires the adapter and ramp, installs the SIGTERM handler,
-  runs the test, then idles.
+- `motor_test/smoke_test.py` (application): `run_ramp_loop(motor,
+  counts, step_s, sleep)` sets direction, plays the counts cycle after
+  cycle forever, and always stops the motor when the loop exits (exception
+  or SIGTERM).
+- `main.py`: wires the adapter and ramp, installs a SIGTERM handler that
+  raises `SystemExit` so the loop's cleanup runs, and starts the loop.
 
 ## Testing
 
@@ -68,8 +69,9 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
   - Ramp starts and ends at 0, peaks at 2048 for 6 V/12 V, is symmetric,
     has the requested number of steps.
   - Invalid inputs raise `ValueError`.
-  - `run_ramp` sets forward before driving, plays every count in order,
-    and stops the motor even if a step raises. This uses a recording fake
+  - `run_ramp_loop` sets forward before driving, plays every count in
+    order, repeats the cycle, and stops the motor when interrupted
+    (the test's `sleep` raises after N steps to end the loop). This uses a recording fake
     `MotorOutput`, which checks our sequencing, not a mock's behavior.
 - The PCA9685 adapter is verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MB1/MB2 with a meter.
