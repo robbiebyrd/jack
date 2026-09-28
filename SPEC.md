@@ -34,14 +34,17 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 
 ## Smoke test behavior (`main.py`)
 
-1. On start, drive motor B (terminals MB1 +, MB2 −) forward
-   (BIN1 = 0, BIN2 = 1).
+1. On start, drive **both** motor channels forward together: motor A
+   (terminals MA1 +, MA2 −; AIN1 = 0, AIN2 = 1) and motor B (terminals
+   MB1 +, MB2 −; BIN1 = 0, BIN2 = 1).
 2. Ramp average voltage 0 V → 6 V over 1 s, then 6 V → 0 V over 1 s
    (2 s total), in 50 evenly spaced steps (40 ms each).
    - With 12 V supply, 6 V = 50% duty = PCA9685 count 2048 of 4096.
 3. Repeat the 2 s cycle back-to-back, with no pause, until the process
    is stopped.
-4. On SIGTERM or any exception, set motor B duty to 0 before exiting.
+4. On SIGTERM or any exception, **short-brake** both motors before exiting:
+   duty 0, then IN1 = IN2 = high (the TB6612FNG shorts the motor leads).
+   A failure braking one motor must not prevent braking the other.
 
 ## Self-recovery
 
@@ -76,10 +79,24 @@ The app must come back on its own from any failure, without a human:
   4095 (4096 would set the PCA9685 full-off bit).
 - `motor_test/ports.py`: the `MotorOutput` protocol, with `set_forward()`,
   `set_duty(count)` and `stop()`.
-- `motor_test/pca9685_motor.py` (adapter): `MotorOutput` for one
-  TB6612FNG channel through the PCA9685 over smbus2. Register logic follows
-  Waveshare's `PCA9685.py`, writing 12-bit counts directly (Waveshare's
-  `setDutycycle` scales by 40 and never reaches the full 4096).
+- `motor_test/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
+  the PWM chip, created once and shared by both motors. Register logic
+  follows Waveshare's `PCA9685.py`, writing 12-bit counts directly
+  (Waveshare's `setDutycycle` scales by 40 and never reaches the full
+  4096). `set_off_count(channel, count)` rejects counts outside 0..4095.
+- `motor_test/tb6612_motor.py` (adapter): `Tb6612Motor(chip, channels,
+  reverse=False)`, a `MotorOutput` for one TB6612FNG channel.
+  `MotorChannels(pwm, in1, in2)`, with `MOTOR_A = (0, 1, 2)` and
+  `MOTOR_B = (5, 3, 4)`. Methods `set_forward()`, `set_backward()`,
+  `set_duty(count)`, and `stop()` (short brake). `reverse=True` swaps the
+  direction for a motor wired with flipped polarity. Short brake, reverse
+  and backward are borrowed from
+  https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT). That
+  library drives TB6612 pins from Pi GPIO, which this HAT does not do, so
+  only the ideas are borrowed.
+- `motor_test/motor_group.py` (application): `MotorGroup(motors)`, a
+  `MotorOutput` that sends each command to every motor. `stop()` attempts
+  every motor, then re-raises the first failure.
 - `motor_test/smoke_test.py` (application): `run_ramp_loop(motor,
   counts, step_s, sleep, on_cycle)` sets direction, plays the counts cycle
   after cycle forever, calls `on_cycle()` after each completed cycle, and
@@ -88,7 +105,7 @@ The app must come back on its own from any failure, without a human:
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
-- `main.py`: wires the adapter and ramp, installs a SIGTERM handler that
+- `main.py`: builds one `Pca9685` and a `MotorGroup` of motors A and B, wires them to the ramp loop, installs a SIGTERM handler that
   raises `SystemExit` so the loop's cleanup runs, sends `READY=1` after
   motor init, and starts the loop with `on_cycle` sending `WATCHDOG=1`.
 
@@ -112,8 +129,16 @@ The app must come back on its own from any failure, without a human:
 - Self-recovery is verified on the Pi: `kill -9` (crash), `kill -STOP`
   (hang, so the watchdog fires), and a reboot, each followed by the app
   running again with no human action.
-- The PCA9685 adapter is verified on real hardware: after install, watch
-  `journalctl -u jack` and measure across MB1/MB2 with a meter.
+  - `Pca9685` writes the Waveshare init sequence and exact channel
+    registers (recording in-memory bus), and rejects out-of-range counts.
+  - `Tb6612Motor` forward, backward, the reverse flag, duty on the right
+    PWM channel for A and B, and short brake (duty zeroed before
+    IN1 = IN2 = high).
+  - `MotorGroup` fans out commands and brakes every motor even when one
+    fails.
+- The adapters are verified on real hardware: after install, watch
+  `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
+  meter.
 
 ## Deployment
 
@@ -140,5 +165,7 @@ and are not tied to any login session or human user.
 
 ## Out of scope
 
-- Motor A, real application behavior, speed or direction control APIs.
+- Real application behavior. The smoke test drives forward only;
+  `set_backward()` exists and is tested but is not used.
+- The TB6612FNG `STBY` pin. Waveshare's sample code never drives it.
 - Push-based deploys (webhooks, self-hosted runners).

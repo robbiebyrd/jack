@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Loop a 0 → 6 V → 0 V ramp on motor B of the Waveshare Motor Driver HAT from a boot-time system service on the Pi, and redeploy automatically within about 60 s of a push to `main`.
+**Goal:** Loop a 0 → 6 V → 0 V ramp on both motor channels (A and B) of the Waveshare Motor Driver HAT from a boot-time system service on the Pi, and redeploy automatically within about 60 s of a push to `main`.
 
 **Architecture:** Hexagonal Python app. A pure domain module (`ramp.py`) computes duty counts, a `MotorOutput` port has a PCA9685 adapter, a small application loop (`smoke_test.py`) plays the ramp, an sd_notify adapter pings the systemd watchdog, and `main.py` wires them together. Deployment is plain systemd: a self-recovering app service (`Restart=always`, watchdog) running as the `jack` system user, plus a root timer that runs a git polling script.
 
@@ -13,10 +13,10 @@
 ## Global Constraints
 
 - I2C bus 1, PCA9685 address `0x40`, PWM frequency 50 Hz.
-- Motor B channels: PWMB = 5, BIN1 = 3, BIN2 = 4. Forward = BIN1 low, BIN2 high.
+- Motor A channels: PWMA = 0, AIN1 = 1, AIN2 = 2. Motor B channels: PWMB = 5, BIN1 = 3, BIN2 = 4. Forward = IN1 low, IN2 high. Both motors are driven together, forward only.
 - VIN = 12 V. Peak = 6 V, which is count 2048 of 4096.
 - Cycle: 2 s total (1 s up, 1 s down), 50 steps of 40 ms, repeated back-to-back with no pause.
-- On SIGTERM or any exception, motor B duty goes to 0 before exit.
+- On SIGTERM or any exception, both motors short-brake before exit (duty 0, then IN1 = IN2 = high). A failure braking one motor must not skip the other.
 - Self-recovery: `Type=notify`, `NotifyAccess=main`, `WatchdogSec=10`, `Restart=always`, `RestartSec=5`, `StartLimitIntervalSec=0`. Send `READY=1` after motor init and `WATCHDOG=1` after every completed cycle.
 - Checkout lives at `/opt/jack`, owned by root, cloned from `https://github.com/robbiebyrd/jack.git`.
 - App runs as the system user `jack` (no home, `/usr/sbin/nologin`, member of `i2c`), not tied to any login.
@@ -26,11 +26,11 @@
 
 ## Review Focus
 
-1. **Peak equal to supply:** a 4096 count would set the PCA9685 "full off" bit and turn the motor *off*. Counts must cap at 4095. Covered in Task 1 and Task 3.
-2. **SIGTERM during a sleep** (`systemctl stop` or a deploy restart): the motor must reach duty 0 before the process exits. Covered in Task 2 and Task 5.
-3. **`git fetch` failure** (network down, GitHub unreachable): the updater exits non-zero, leaves the checkout alone, and does not restart the app. Covered in Task 6.
-4. **Remote history rewritten** (force-push) or a tracked file edited by hand on the Pi: the Pi still converges exactly to `origin/main`. Covered in Task 6.
-5. **A commit that changes `jack-update.sh` itself** while the running script is being rewritten by `git reset`: the run completes normally and restarts once. Covered in Task 6.
+1. **Peak equal to supply:** a 4096 count would set the PCA9685 "full off" bit and turn the motor *off*. Counts must cap at 4095. Covered in Task 1 and Task 6.
+2. **SIGTERM during a sleep** (`systemctl stop` or a deploy restart): both motors must short-brake before the process exits, even if braking one fails. Covered in Task 2, Task 6 and Task 7.
+3. **`git fetch` failure** (network down, GitHub unreachable): the updater exits non-zero, leaves the checkout alone, and does not restart the app. Covered in Task 8.
+4. **Remote history rewritten** (force-push) or a tracked file edited by hand on the Pi: the Pi still converges exactly to `origin/main`. Covered in Task 8.
+5. **A commit that changes `jack-update.sh` itself** while the running script is being rewritten by `git reset`: the run completes normally and restarts once. Covered in Task 8.
 
 ---
 
@@ -42,7 +42,10 @@
 | `motor_test/ramp.py` | Domain: triangle ramp to 12-bit duty counts |
 | `motor_test/ports.py` | Port: `MotorOutput` protocol |
 | `motor_test/smoke_test.py` | Application: play a ramp cycle forever, always stop the motor |
-| `motor_test/pca9685_motor.py` | Adapter: one TB6612FNG channel through the PCA9685 over I2C |
+| `motor_test/pca9685_motor.py` | Adapter (Task 3). Replaced in Task 6 by `pca9685.py` + `tb6612_motor.py` |
+| `motor_test/pca9685.py` | Adapter: the PCA9685 chip, shared by both motors |
+| `motor_test/tb6612_motor.py` | Adapter: one TB6612FNG channel (A or B) with forward, backward, reverse flag, short brake |
+| `motor_test/motor_group.py` | Application: drive several motors as one `MotorOutput`, brake all on stop |
 | `motor_test/systemd_notify.py` | Adapter: send sd_notify messages (READY, WATCHDOG) to systemd |
 | `main.py` | Composition root: constants, SIGTERM handler, wiring |
 | `deploy/jack-update.sh` | Poll origin/main, reset, and restart the app on change |
@@ -828,7 +831,548 @@ git commit -m "Add main.py wiring motor B ramp loop with SIGTERM cleanup and wat
 
 ---
 
-### Task 6: Update script
+### Task 6: Split the PCA9685 chip and TB6612 channel adapters
+
+This replaces `motor_test/pca9685_motor.py` (Task 3). The HAT has two motor channels on one PCA9685, so the chip is initialized once and shared. Short brake, the reverse flag and backward are borrowed from https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT). Only the ideas are borrowed, because that library drives Pi GPIO, not a PCA9685.
+
+**Files:**
+- Create: `motor_test/pca9685.py`, `motor_test/tb6612_motor.py`, `tests/fakes.py`, `tests/test_pca9685.py`, `tests/test_tb6612_motor.py`
+- Delete: `motor_test/pca9685_motor.py`, `tests/test_pca9685_motor.py`
+- Modify: `tests/test_smoke_test.py` (import `RecordingMotor` from `tests/fakes.py` instead of defining it)
+- Do NOT modify `main.py` in this task. Task 7 rewires it. Until then `main.py` still imports the deleted module, so `tests/test_main.py` will fail at collection. Run the other test files as listed below.
+
+**Interfaces:**
+- Consumes: `motor_test.ramp.PWM_RESOLUTION`, `motor_test.ramp.PWM_MAX_COUNT`, `motor_test.ports.MotorOutput`
+- Produces:
+  - `motor_test.pca9685.Pca9685(bus: I2CBus, address: int, pwm_freq_hz: float)` with `set_off_count(channel: int, off_count: int) -> None`, which raises `ValueError` outside 0..4095
+  - `motor_test.pca9685.I2CBus` (Protocol)
+  - `motor_test.tb6612_motor.MotorChannels(pwm: int, in1: int, in2: int)` (NamedTuple), `MOTOR_A = MotorChannels(pwm=0, in1=1, in2=2)`, `MOTOR_B = MotorChannels(pwm=5, in1=3, in2=4)`
+  - `motor_test.tb6612_motor.Tb6612Motor(chip: Pca9685, channels: MotorChannels, reverse: bool = False)` with `set_forward()`, `set_backward()`, `set_duty(count: int)`, and `stop()` (short brake). It satisfies `MotorOutput`.
+  - `tests/fakes.py` with `RecordingBus` and `RecordingMotor`, imported as `from tests.fakes import ...`
+
+Register map: channel `n` = `0x06 + 4n` (ON_L, ON_H, OFF_L, OFF_H). Motor A: PWMA 0 (0x06–0x09), AIN1 1 (0x0A–0x0D), AIN2 2 (0x0E–0x11). Motor B: BIN1 3 (0x12–0x15), BIN2 4 (0x16–0x19), PWMB 5 (0x1A–0x1D).
+
+- [ ] **Step 1: Create the shared test fakes** in `tests/fakes.py`
+
+```python
+"""In-memory stand-ins for hardware, shared by the test modules."""
+
+
+class RecordingBus:
+    """In-memory PCA9685 register file that records every byte write."""
+
+    def __init__(self):
+        self.registers = {}
+        self.writes = []
+
+    def write_byte_data(self, i2c_addr, register, value):
+        self.writes.append((i2c_addr, register, value))
+        self.registers[register] = value
+
+    def read_byte_data(self, i2c_addr, register):
+        return self.registers.get(register, 0)
+
+
+class RecordingMotor:
+    """MotorOutput that records the commands it receives, in order."""
+
+    def __init__(self):
+        self.calls = []
+
+    def set_forward(self):
+        self.calls.append(("forward",))
+
+    def set_duty(self, count):
+        self.calls.append(("duty", count))
+
+    def stop(self):
+        self.calls.append(("stop",))
+```
+
+In `tests/test_smoke_test.py`, delete the `RecordingMotor` class and add `from tests.fakes import RecordingMotor` after the existing `from motor_test.smoke_test import run_ramp_loop` line.
+
+Run: `.venv/bin/pytest tests/test_smoke_test.py -v`
+Expected: all PASS, since only the import location moved.
+
+- [ ] **Step 2: Write the failing chip tests** in `tests/test_pca9685.py`
+
+```python
+import pytest
+
+from motor_test.pca9685 import Pca9685
+from tests.fakes import RecordingBus
+
+ADDRESS = 0x40
+
+
+def make_chip():
+    bus = RecordingBus()
+    chip = Pca9685(bus, ADDRESS, pwm_freq_hz=50)
+    return bus, chip
+
+
+def test_init_resets_mode_and_sets_50hz_prescale_like_waveshare():
+    bus, _ = make_chip()
+    assert bus.writes == [
+        (ADDRESS, 0x00, 0x00),  # MODE1 reset
+        (ADDRESS, 0x00, 0x10),  # sleep to change prescale
+        (ADDRESS, 0xFE, 121),  # prescale for 50 Hz
+        (ADDRESS, 0x00, 0x00),  # wake
+        (ADDRESS, 0x00, 0x80),  # restart
+    ]
+
+
+def test_set_off_count_writes_channel_registers():
+    bus, chip = make_chip()
+    bus.writes.clear()
+    chip.set_off_count(5, 2048)
+    assert bus.writes == [
+        (ADDRESS, 0x1A, 0x00),
+        (ADDRESS, 0x1B, 0x00),
+        (ADDRESS, 0x1C, 0x00),
+        (ADDRESS, 0x1D, 0x08),
+    ]
+
+
+def test_full_count_splits_across_off_low_and_high_registers():
+    bus, chip = make_chip()
+    bus.writes.clear()
+    chip.set_off_count(0, 4095)
+    assert bus.writes == [
+        (ADDRESS, 0x06, 0x00),
+        (ADDRESS, 0x07, 0x00),
+        (ADDRESS, 0x08, 0xFF),
+        (ADDRESS, 0x09, 0x0F),
+    ]
+
+
+@pytest.mark.parametrize("count", [-1, 4096])
+def test_out_of_range_count_is_rejected_without_writing(count):
+    bus, chip = make_chip()
+    bus.writes.clear()
+    with pytest.raises(ValueError):
+        chip.set_off_count(5, count)
+    assert bus.writes == []
+```
+
+- [ ] **Step 3: Write the failing motor tests** in `tests/test_tb6612_motor.py`
+
+```python
+import pytest
+
+from motor_test.pca9685 import Pca9685
+from motor_test.ramp import PWM_MAX_COUNT
+from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, MotorChannels, Tb6612Motor
+from tests.fakes import RecordingBus
+
+ADDRESS = 0x40
+
+
+def make_motor(channels, reverse=False):
+    bus = RecordingBus()
+    chip = Pca9685(bus, ADDRESS, pwm_freq_hz=50)
+    bus.writes.clear()
+    return bus, chip, Tb6612Motor(chip, channels, reverse=reverse)
+
+
+def off_count(bus, channel):
+    """Decode the 12-bit OFF count the chip holds for `channel`."""
+    base = 0x06 + 4 * channel
+    return bus.registers[base + 2] | (bus.registers[base + 3] << 8)
+
+
+def test_channel_mapping_matches_waveshare_sample_code():
+    assert MOTOR_A == MotorChannels(pwm=0, in1=1, in2=2)
+    assert MOTOR_B == MotorChannels(pwm=5, in1=3, in2=4)
+
+
+@pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])
+def test_forward_drives_in1_low_and_in2_high(channels):
+    bus, _, motor = make_motor(channels)
+    motor.set_forward()
+    assert off_count(bus, channels.in1) == 0
+    assert off_count(bus, channels.in2) == PWM_MAX_COUNT
+
+
+@pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])
+def test_backward_drives_in1_high_and_in2_low(channels):
+    bus, _, motor = make_motor(channels)
+    motor.set_backward()
+    assert off_count(bus, channels.in1) == PWM_MAX_COUNT
+    assert off_count(bus, channels.in2) == 0
+
+
+def test_reverse_flag_swaps_forward_and_backward():
+    bus, _, motor = make_motor(MOTOR_B, reverse=True)
+    motor.set_forward()
+    assert (off_count(bus, 3), off_count(bus, 4)) == (PWM_MAX_COUNT, 0)
+    motor.set_backward()
+    assert (off_count(bus, 3), off_count(bus, 4)) == (0, PWM_MAX_COUNT)
+
+
+@pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])
+def test_set_duty_drives_the_motors_pwm_channel(channels):
+    bus, _, motor = make_motor(channels)
+    motor.set_duty(2048)
+    assert off_count(bus, channels.pwm) == 2048
+
+
+def test_two_motors_on_one_chip_keep_separate_channels():
+    bus, chip, motor_a = make_motor(MOTOR_A)
+    motor_b = Tb6612Motor(chip, MOTOR_B)
+    motor_a.set_duty(2048)
+    motor_b.set_duty(1000)
+    assert off_count(bus, 0) == 2048
+    assert off_count(bus, 5) == 1000
+
+
+def test_stop_zeroes_duty_before_short_braking():
+    bus, _, motor = make_motor(MOTOR_B)
+    motor.set_forward()
+    motor.set_duty(2048)
+    bus.writes.clear()
+    motor.stop()
+    assert bus.writes[:4] == [
+        (ADDRESS, 0x1A, 0x00),
+        (ADDRESS, 0x1B, 0x00),
+        (ADDRESS, 0x1C, 0x00),
+        (ADDRESS, 0x1D, 0x00),
+    ]
+    assert off_count(bus, 5) == 0
+    assert off_count(bus, 3) == PWM_MAX_COUNT
+    assert off_count(bus, 4) == PWM_MAX_COUNT
+
+
+def test_out_of_range_duty_is_rejected():
+    bus, _, motor = make_motor(MOTOR_A)
+    with pytest.raises(ValueError):
+        motor.set_duty(4096)
+    assert bus.writes == []
+```
+
+- [ ] **Step 4: Run the new tests to verify they fail**
+
+Run: `.venv/bin/pytest tests/test_pca9685.py tests/test_tb6612_motor.py -v`
+Expected: collection errors `ModuleNotFoundError: No module named 'motor_test.pca9685'` and `No module named 'motor_test.tb6612_motor'`
+
+- [ ] **Step 5: Implement** `motor_test/pca9685.py`
+
+```python
+"""PCA9685 12-bit PWM controller on the Waveshare Motor Driver HAT.
+
+The register sequence follows Waveshare's PCA9685.py sample driver, but outputs
+are written as raw 12-bit counts instead of Waveshare's percentage (which scales
+by 40 and never reaches the full range).
+"""
+
+import math
+import time
+from typing import Protocol
+
+from motor_test.ramp import PWM_MAX_COUNT, PWM_RESOLUTION
+
+MODE1 = 0x00
+PRESCALE = 0xFE
+LED0_ON_L = 0x06
+MODE1_SLEEP = 0x10
+MODE1_RESTART = 0x80
+OSCILLATOR_HZ = 25_000_000
+
+
+class I2CBus(Protocol):
+    """The subset of smbus2.SMBus this adapter uses."""
+
+    def write_byte_data(self, i2c_addr: int, register: int, value: int) -> None: ...
+
+    def read_byte_data(self, i2c_addr: int, register: int) -> int: ...
+
+
+class Pca9685:
+    """One PCA9685 chip. Create it once and share it between the motors it drives."""
+
+    def __init__(self, bus: I2CBus, address: int, pwm_freq_hz: float):
+        self._bus = bus
+        self._address = address
+        self._write(MODE1, 0x00)
+        self._set_frequency(pwm_freq_hz)
+
+    def set_off_count(self, channel: int, off_count: int) -> None:
+        """Hold `channel` high for `off_count` of every 4096 ticks (0 = always low)."""
+        if not 0 <= off_count <= PWM_MAX_COUNT:
+            raise ValueError(f"off count must be between 0 and {PWM_MAX_COUNT}, got {off_count}")
+        base = LED0_ON_L + 4 * channel
+        self._write(base, 0)
+        self._write(base + 1, 0)
+        self._write(base + 2, off_count & 0xFF)
+        self._write(base + 3, off_count >> 8)
+
+    def _set_frequency(self, freq_hz: float) -> None:
+        prescale = math.floor(OSCILLATOR_HZ / PWM_RESOLUTION / freq_hz - 1 + 0.5)
+        mode = self._bus.read_byte_data(self._address, MODE1)
+        self._write(MODE1, (mode & 0x7F) | MODE1_SLEEP)
+        self._write(PRESCALE, prescale)
+        self._write(MODE1, mode)
+        time.sleep(0.005)  # same settle time Waveshare's driver waits before restart
+        self._write(MODE1, mode | MODE1_RESTART)
+
+    def _write(self, register: int, value: int) -> None:
+        self._bus.write_byte_data(self._address, register, value)
+```
+
+- [ ] **Step 6: Implement** `motor_test/tb6612_motor.py`
+
+```python
+"""MotorOutput adapter for one TB6612FNG H-bridge channel driven through the PCA9685.
+
+Short brake, backward, and the reverse-polarity flag are borrowed from
+https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT).
+"""
+
+from typing import NamedTuple
+
+from motor_test.pca9685 import Pca9685
+from motor_test.ramp import PWM_MAX_COUNT
+
+LOW = 0
+HIGH = PWM_MAX_COUNT
+
+
+class MotorChannels(NamedTuple):
+    """PCA9685 channels wired to one TB6612FNG channel's PWM, IN1 and IN2 pins."""
+
+    pwm: int
+    in1: int
+    in2: int
+
+
+# Channel mapping from Waveshare's Motor Driver HAT sample code.
+MOTOR_A = MotorChannels(pwm=0, in1=1, in2=2)
+MOTOR_B = MotorChannels(pwm=5, in1=3, in2=4)
+
+
+class Tb6612Motor:
+    """One DC motor on the HAT. `reverse=True` flips direction for a motor wired with swapped leads."""
+
+    def __init__(self, chip: Pca9685, channels: MotorChannels, reverse: bool = False):
+        self._chip = chip
+        self._channels = channels
+        self._reverse = reverse
+
+    def set_forward(self) -> None:
+        self._set_direction(forward=not self._reverse)
+
+    def set_backward(self) -> None:
+        self._set_direction(forward=self._reverse)
+
+    def set_duty(self, count: int) -> None:
+        self._chip.set_off_count(self._channels.pwm, count)
+
+    def stop(self) -> None:
+        """Short brake: zero the duty, then drive IN1 and IN2 high so the TB6612FNG shorts the motor leads."""
+        self.set_duty(0)
+        self._set_inputs(HIGH, HIGH)
+
+    def _set_direction(self, forward: bool) -> None:
+        # Waveshare's "forward" is IN1 low, IN2 high.
+        if forward:
+            self._set_inputs(LOW, HIGH)
+        else:
+            self._set_inputs(HIGH, LOW)
+
+    def _set_inputs(self, in1: int, in2: int) -> None:
+        self._chip.set_off_count(self._channels.in1, in1)
+        self._chip.set_off_count(self._channels.in2, in2)
+```
+
+- [ ] **Step 7: Delete the replaced adapter and its tests**
+
+```bash
+git rm motor_test/pca9685_motor.py tests/test_pca9685_motor.py
+```
+
+- [ ] **Step 8: Run the tests to verify they pass**
+
+Run: `.venv/bin/pytest tests/test_ramp.py tests/test_smoke_test.py tests/test_systemd_notify.py tests/test_pca9685.py tests/test_tb6612_motor.py -v`
+Expected: all PASS, with no warnings. `tests/test_main.py` is excluded because `main.py` still imports the deleted module until Task 7.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add tests/fakes.py tests/test_smoke_test.py tests/test_pca9685.py tests/test_tb6612_motor.py motor_test/pca9685.py motor_test/tb6612_motor.py
+git commit -m "Split PCA9685 chip and TB6612 channel adapters; add short brake, reverse, both channels"
+```
+
+---
+
+### Task 7: Motor group and two-channel main.py
+
+**Files:**
+- Create: `motor_test/motor_group.py`, `tests/test_motor_group.py`
+- Modify: `main.py` (full replacement below), `tests/test_main.py` (one new test)
+
+**Interfaces:**
+- Consumes: `Pca9685`, `Tb6612Motor`, `MOTOR_A`, `MOTOR_B` (Task 6); `RecordingMotor` from `tests/fakes.py` (Task 6); `run_ramp_loop`, `ramp_profile`, `notify` (earlier tasks)
+- Produces: `motor_test.motor_group.MotorGroup(motors: Sequence[MotorOutput])`, which is itself a `MotorOutput`
+
+- [ ] **Step 1: Write the failing tests** in `tests/test_motor_group.py`
+
+```python
+import pytest
+
+from motor_test.motor_group import MotorGroup
+from tests.fakes import RecordingMotor
+
+
+class MotorThatFailsToStop(RecordingMotor):
+    def stop(self):
+        super().stop()
+        raise OSError("I2C write failed")
+
+
+def test_commands_reach_every_motor_in_order():
+    motor_a, motor_b = RecordingMotor(), RecordingMotor()
+    group = MotorGroup([motor_a, motor_b])
+    group.set_forward()
+    group.set_duty(2048)
+    group.stop()
+    expected = [("forward",), ("duty", 2048), ("stop",)]
+    assert motor_a.calls == expected
+    assert motor_b.calls == expected
+
+
+def test_stop_still_brakes_later_motors_when_one_fails():
+    failing, healthy = MotorThatFailsToStop(), RecordingMotor()
+    group = MotorGroup([failing, healthy])
+    with pytest.raises(OSError, match="I2C write failed"):
+        group.stop()
+    assert healthy.calls == [("stop",)]
+
+
+def test_empty_group_is_rejected():
+    with pytest.raises(ValueError):
+        MotorGroup([])
+```
+
+Add this test to the end of `tests/test_main.py`:
+
+```python
+def test_both_hat_channels_are_driven():
+    assert main.DRIVEN_CHANNELS == (main.MOTOR_A, main.MOTOR_B)
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `.venv/bin/pytest tests/test_motor_group.py tests/test_main.py -v`
+Expected: collection errors: `No module named 'motor_test.motor_group'`, and for `test_main.py`, `No module named 'motor_test.pca9685_motor'` (removed in Task 6).
+
+- [ ] **Step 3: Implement** `motor_test/motor_group.py`
+
+```python
+"""Drives several motors as one MotorOutput."""
+
+from collections.abc import Sequence
+
+from motor_test.ports import MotorOutput
+
+
+class MotorGroup:
+    """Sends every command to each motor, in order."""
+
+    def __init__(self, motors: Sequence[MotorOutput]):
+        if not motors:
+            raise ValueError("MotorGroup needs at least one motor")
+        self._motors = list(motors)
+
+    def set_forward(self) -> None:
+        for motor in self._motors:
+            motor.set_forward()
+
+    def set_duty(self, count: int) -> None:
+        for motor in self._motors:
+            motor.set_duty(count)
+
+    def stop(self) -> None:
+        """Stop every motor, even if stopping one fails, then re-raise the first failure."""
+        failures = []
+        for motor in self._motors:
+            try:
+                motor.stop()
+            except Exception as failure:
+                failures.append(failure)
+        if failures:
+            raise failures[0]
+```
+
+- [ ] **Step 4: Replace** `main.py` entirely with:
+
+```python
+"""Motor Driver HAT smoke test: loops motors A and B through a 0 -> 6 V -> 0 V ramp."""
+
+import signal
+import time
+from types import FrameType
+from typing import NoReturn
+
+from smbus2 import SMBus
+
+from motor_test.motor_group import MotorGroup
+from motor_test.pca9685 import Pca9685
+from motor_test.ramp import ramp_profile
+from motor_test.smoke_test import run_ramp_loop
+from motor_test.systemd_notify import notify
+from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, Tb6612Motor
+
+I2C_BUS = 1
+PCA9685_ADDRESS = 0x40
+PWM_FREQ_HZ = 50
+DRIVEN_CHANNELS = (MOTOR_A, MOTOR_B)
+
+SUPPLY_VOLTS = 12.0
+PEAK_VOLTS = 6.0
+CYCLE_S = 2.0
+STEPS_PER_CYCLE = 50
+
+
+def exit_on_sigterm(signum: int, frame: FrameType | None) -> NoReturn:
+    """Turn SIGTERM into SystemExit so run_ramp_loop's cleanup brakes the motors."""
+    raise SystemExit(0)
+
+
+def ping_watchdog() -> None:
+    """Tell systemd's watchdog the ramp loop completed another cycle."""
+    notify("WATCHDOG=1")
+
+
+def main() -> None:
+    signal.signal(signal.SIGTERM, exit_on_sigterm)
+    counts = ramp_profile(PEAK_VOLTS, SUPPLY_VOLTS, STEPS_PER_CYCLE)
+    with SMBus(I2C_BUS) as bus:
+        chip = Pca9685(bus, PCA9685_ADDRESS, PWM_FREQ_HZ)
+        motors = MotorGroup([Tb6612Motor(chip, channels) for channels in DRIVEN_CHANNELS])
+        print(f"Looping motors A and B 0 -> {PEAK_VOLTS} V -> 0 every {CYCLE_S} s on {SUPPLY_VOLTS} V supply")
+        notify("READY=1")
+        run_ramp_loop(motors, counts, CYCLE_S / STEPS_PER_CYCLE, time.sleep, ping_watchdog)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+- [ ] **Step 5: Run the full suite to verify it passes**
+
+Run: `.venv/bin/pytest -v`
+Expected: all PASS, with no warnings.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add motor_test/motor_group.py tests/test_motor_group.py main.py tests/test_main.py
+git commit -m "Drive both HAT motor channels through a MotorGroup that brakes all on exit"
+```
+
+---
+
+### Task 8: Update script
 
 **Files:**
 - Create: `deploy/jack-update.sh`, `tests/test_jack_update.py`
@@ -1038,16 +1582,16 @@ git commit -m "Add git polling update script with real-git tests"
 
 ---
 
-### Task 7: systemd units, installer, and README
+### Task 9: systemd units, installer, and README
 
 **Files:**
 - Create: `deploy/jack.service`, `deploy/jack-update.service`, `deploy/jack-update.timer`, `deploy/install.sh`, `README.md`, `tests/test_units.py`
 
 **Interfaces:**
-- Consumes: `/opt/jack/main.py` (Task 4), `/opt/jack/deploy/jack-update.sh` (Task 5)
+- Consumes: `/opt/jack/main.py` (Task 7), `/opt/jack/deploy/jack-update.sh` (Task 8)
 - Produces: the unit names `jack.service`, `jack-update.service`, `jack-update.timer`
 
-These are verified on the Pi in Task 8 with `systemd-analyze verify` and real failure drills. The Mac has no systemd, so `tests/test_units.py` pins the self-recovery settings in the unit file.
+These are verified on the Pi in Task 10 with `systemd-analyze verify` and real failure drills. The Mac has no systemd, so `tests/test_units.py` pins the self-recovery settings in the unit file.
 
 - [ ] **Step 1: Write the failing test** `tests/test_units.py`
 
@@ -1192,8 +1736,9 @@ Expected: `OK`
 ````markdown
 # jack
 
-Raspberry Pi + Waveshare Motor Driver HAT. `main.py` loops motor B (MB1/MB2)
-through a 0 → 6 V → 0 V ramp every 2 s on a 12 V supply. See `SPEC.md`.
+Raspberry Pi + Waveshare Motor Driver HAT. `main.py` loops both motor channels
+(MA1/MA2 and MB1/MB2) through a 0 → 6 V → 0 V ramp every 2 s on a 12 V supply,
+and short-brakes them on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 
@@ -1222,7 +1767,7 @@ for 10 s, systemd kills and restarts it.
 
 ```bash
 journalctl -u jack -u jack-update -f   # logs
-sudo systemctl stop jack               # stop the motor now
+sudo systemctl stop jack               # stop (brake) the motors now
 sudo systemctl disable --now jack      # keep it off across reboots
 ```
 
@@ -1248,7 +1793,7 @@ git commit -m "Add systemd units, Pi installer, and README"
 
 ---
 
-### Task 8: Deploy to the Pi and verify on hardware
+### Task 10: Deploy to the Pi and verify on hardware
 
 **Requires Boss:** approval to merge to `main` and push, and running the `sudo` step.
 
@@ -1280,12 +1825,12 @@ Expected: no `systemd-analyze` output, `/dev/i2c-1` owned by group `i2c` with mo
 ```bash
 ssh 10.10.0.54 'journalctl -u jack -n 20 --no-pager'
 ```
-Expected: `Looping motor B 0 -> 6.0 V -> 0 every 2.0 s on 12.0 V supply` and no tracebacks. Boss confirms with a meter on MB1/MB2 that the average voltage cycles between about 0 and about 6 V every 2 s.
+Expected: `Looping motors A and B 0 -> 6.0 V -> 0 every 2.0 s on 12.0 V supply` and no tracebacks. Boss confirms with a meter on MA1/MA2 and on MB1/MB2 that the average voltage cycles between about 0 and about 6 V every 2 s.
 
 - [ ] **Step 5: Verify that stopping stops the motor**
 
 Boss runs: `! ssh -t 10.10.0.54 sudo systemctl stop jack`
-Expected: `journalctl -u jack` shows a clean stop with no traceback, and the meter reads 0 V. Then `! ssh -t 10.10.0.54 sudo systemctl start jack`.
+Expected: `journalctl -u jack` shows a clean stop with no traceback, and the meter reads 0 V across both MA1/MA2 and MB1/MB2 (short brake). Then `! ssh -t 10.10.0.54 sudo systemctl start jack`.
 
 - [ ] **Step 6: Crash drill (restart after being killed)**
 
