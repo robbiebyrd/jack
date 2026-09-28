@@ -21,6 +21,9 @@ PCA9685_ADDRESS = 0x40
 PWM_FREQ_HZ = 50
 
 SUPPLY_VOLTS = 12.0
+# The 3.5 mm jack; plughw converts formats if the card needs it (Task 1 of the talk plan checked it).
+ALSA_DEVICE = "plughw:CARD=Headphones,DEV=0"
+ALSA_PERIODS = 4
 # Fixed pose tour: an alternative to speaking, e.g. for checking the mechanism.
 MOUTH_DEMO = (*CLOSE, *rest(1.5), *RELAX, *rest(1.5), *open_fully(0.5))
 
