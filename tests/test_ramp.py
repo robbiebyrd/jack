@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.ramp import PWM_MAX_COUNT, constant_profile, ramp_profile, segment_profile, square_profile
+from motor_test.ramp import PWM_MAX_COUNT, constant_profile, ramp_profile, segment_profile, square_profile, whole_steps
 
 
 def test_six_volts_on_twelve_volt_supply_peaks_at_half_duty():
@@ -119,3 +119,14 @@ def test_segment_profile_ramps_linearly_reaching_the_end_level_on_the_last_step(
 def test_invalid_segments_are_rejected(segments, supply_volts, step_s):
     with pytest.raises(ValueError):
         segment_profile(segments, supply_volts, step_s)
+
+
+def test_whole_steps_counts_steps_in_a_duration():
+    assert whole_steps(0.16, 0.02) == 8
+    assert whole_steps(0.25, 0.05) == 5
+
+
+@pytest.mark.parametrize("seconds", [0.15, 0.0, -0.02])
+def test_whole_steps_rejects_partial_or_empty_durations(seconds):
+    with pytest.raises(ValueError):
+        whole_steps(seconds, 0.02)

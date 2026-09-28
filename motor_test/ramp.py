@@ -66,9 +66,7 @@ def segment_profile(
     for start_volts, end_volts, seconds in segments:
         _check_signed_volts("start_volts", start_volts, supply_volts)
         _check_signed_volts("end_volts", end_volts, supply_volts)
-        steps = round(seconds / step_s)
-        if steps < 1 or not math.isclose(steps * step_s, seconds):
-            raise ValueError(f"{seconds} s is not a whole, non-zero number of {step_s} s steps")
+        steps = whole_steps(seconds, step_s)
         counts += [
             volts_to_count(start_volts + (end_volts - start_volts) * step / steps, supply_volts)
             for step in range(1, steps + 1)
@@ -92,3 +90,11 @@ def volts_to_count(volts: float, supply_volts: float) -> int:
     """Signed duty count for `volts`, capped so its magnitude never reaches the full-off bit."""
     count = min(round(abs(volts) / supply_volts * PWM_RESOLUTION), PWM_MAX_COUNT)
     return count if volts >= 0 else -count
+
+
+def whole_steps(seconds: float, step_s: float) -> int:
+    """How many `step_s` steps make `seconds`; it must be a whole, non-zero number."""
+    steps = round(seconds / step_s)
+    if steps < 1 or not math.isclose(steps * step_s, seconds):
+        raise ValueError(f"{seconds} s is not a whole, non-zero number of {step_s} s steps")
+    return steps

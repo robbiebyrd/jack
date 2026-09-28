@@ -1,0 +1,66 @@
+"""Every tunable setting of the talk loop in one place, checked when built.
+
+Starting values are guesses to tune by eye with lipsync_wav.py, except the voltages
+(Boss's calibration) and the close pulse (the random-speech demo Boss saw as lifelike).
+See the "Mouth control" table in SPEC.md.
+"""
+
+from dataclasses import dataclass
+
+from motor_test.pcm import TICK_S
+from motor_test.ramp import whole_steps
+
+
+@dataclass(frozen=True)
+class TalkSettings:
+    open_min_v: float = 2.0
+    open_max_v: float = 6.0
+    open_slew_v_per_s: float = 24.0
+    close_v: float = 0.5
+    close_s: float = 0.16
+    stall_v: float = 5.0
+    max_stall_s: float = 0.5
+    attack_s: float = 0.01
+    release_s: float = 0.08
+    gate_open_db: float = -35.0
+    gate_close_db: float = -40.0
+    full_db: float = -10.0
+    mouth_lead_ms: float = 0.0
+    max_backlog_ms: float = 200.0
+
+    def __post_init__(self) -> None:
+        for name in ("open_min_v", "open_slew_v_per_s", "close_v", "stall_v", "attack_s", "release_s"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
+        if self.open_max_v < self.open_min_v:
+            raise ValueError(f"open_max_v ({self.open_max_v}) must be at least open_min_v ({self.open_min_v})")
+        if not self.gate_close_db < self.gate_open_db < self.full_db:
+            raise ValueError(
+                "gates must satisfy gate_close_db < gate_open_db < full_db, got "
+                f"{self.gate_close_db}, {self.gate_open_db}, {self.full_db}"
+            )
+        if self.mouth_lead_ms < 0:
+            raise ValueError(f"mouth_lead_ms must not be negative, got {self.mouth_lead_ms}")
+        # Each property below raises ValueError for a duration that isn't whole ticks.
+        self.close_ticks
+        self.max_stall_ticks
+        self.mouth_lead_ticks
+        self.max_backlog_frames
+
+    @property
+    def close_ticks(self) -> int:
+        return whole_steps(self.close_s, TICK_S)
+
+    @property
+    def max_stall_ticks(self) -> int:
+        return whole_steps(self.max_stall_s, TICK_S)
+
+    @property
+    def mouth_lead_ticks(self) -> int:
+        if self.mouth_lead_ms == 0:
+            return 0
+        return whole_steps(self.mouth_lead_ms / 1000, TICK_S)
+
+    @property
+    def max_backlog_frames(self) -> int:
+        return whole_steps(self.max_backlog_ms / 1000, TICK_S)
