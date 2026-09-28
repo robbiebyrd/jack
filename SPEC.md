@@ -249,7 +249,7 @@ would drive the chip and the sound card), using the same check as
 ### Mumble server and client
 
 - `mumble-server` (Debian's package and unit) runs on the Pi, port 64738.
-- Boss sets the server password in `/etc/mumble-server.ini`. The bot reads
+- Boss sets the server password in `/etc/mumble/mumble-server.ini`. The bot reads
   it from `JACK_MUMBLE_PASSWORD` in `/etc/jack/jack.env` (root:jack, 0640),
   loaded by `EnvironmentFile=`. Secrets never go in the repo, which is
   public.

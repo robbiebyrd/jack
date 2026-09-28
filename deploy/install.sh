@@ -52,5 +52,5 @@ systemctl try-restart jack.service
 systemctl enable --now jack.service jack-update.timer
 
 echo "Installed. If /dev/i2c-1 is missing, reboot: sudo reboot"
-echo "To talk: set serverpassword= in /etc/mumble-server.ini and JACK_MUMBLE_PASSWORD= in $ENV_FILE"
+echo "To talk: set serverpassword= in /etc/mumble/mumble-server.ini and JACK_MUMBLE_PASSWORD= in $ENV_FILE"
 echo "to the same password, then: sudo systemctl restart mumble-server jack"

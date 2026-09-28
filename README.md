@@ -53,7 +53,7 @@ Jack plays whatever is said in its Mumble server's root channel and moves the mo
 
 1. Install the Mumble desktop client on your computer and connect to `10.10.0.54`,
    port `64738`, with the server password. Use push-to-talk.
-2. The server password is set on the Pi in `/etc/mumble-server.ini` (`serverpassword=`) and
+2. The server password is set on the Pi in `/etc/mumble/mumble-server.ini` (`serverpassword=`) and
    `/etc/jack/jack.env` (`JACK_MUMBLE_PASSWORD=`); both must match. After changing them:
    `sudo systemctl restart mumble-server jack`.
 
