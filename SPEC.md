@@ -54,7 +54,9 @@ prefer the closed and relaxed-open poses and keep fully open short.
 2. **Motor B (the mouth)** loops `MOUTH_DEMO`, a demo that stands in until
    control inputs (audio, DMX, websockets) are wired in:
    `CLOSE` (+1 V, 0.25 s), rest 1.5 s, `RELAX` (−2 V, 0.5 s), rest 1.5 s,
-   `open_fully(0.5)` (−6 V, 0.5 s): a 4.25 s cycle. "Rest" is 0 V (braked);
+   `open_fully(0.5)` (ramp 0 → −6 V over 0.25 s, then hold −6 V for
+   0.5 s): a 4.5 s cycle. The ramp exists because stepping straight to
+   −6 V strained the motor (Boss, 2026-09-28). "Rest" is 0 V (braked);
    the mouth stays in the pose it last reached.
 3. **Motor A** holds 0 V for the whole cycle.
 4. Repeat the cycle back-to-back, with no pause, until the process is
@@ -72,7 +74,9 @@ For finding mouth positions interactively on the Pi, without a commit per try:
 - Run `python3 /opt/jack/calibrate.py` as a user in the `i2c` group. Each
   line `<volts> <seconds>` drives motor B (negative = backward), then
   short-brakes. `close`, `relax` and `open <seconds>` play the calibrated
-  poses from `motor_test/mouth.py`. `q` or end of input quits.
+  poses from `motor_test/mouth.py` (so `open` ramps too). Commands play in
+  the app's 50 ms steps, so durations must be whole steps (0.8 works,
+  0.33 is rejected). `q` or end of input quits.
 - Volts must be within ±supply; seconds must be more than 0 and at most
   3 s, to limit stall heating against an end stop. Rejected lines never
   move the motor.
@@ -113,14 +117,17 @@ The app must come back on its own from any failure, without a human:
   `square_profile(high_volts, low_volts, supply_volts, steps)` holds
   `high_volts` for the first half and `low_volts` for the second.
   `constant_profile(volts, supply_volts, steps)` holds `volts` throughout.
-  `hold_sequence_profile(segments, supply_volts, step_s)` holds each
-  `(volts, seconds)` segment in order and rejects durations that are not a
-  whole number of steps. All raise `ValueError` for a non-positive supply, a voltage outside the
+  `segment_profile(segments, supply_volts, step_s)` plays each
+  `(start_volts, end_volts, seconds)` segment in order: a hold when start
+  equals end, otherwise a linear ramp that reaches `end_volts` on its last
+  step. It rejects durations that are not a whole number of steps. All raise `ValueError` for a non-positive supply, a voltage outside the
   supply range, or an odd or too-small step count. Magnitudes cap at 4095
   (4096 would set the PCA9685 full-off bit).
 - `motor_test/mouth.py` (domain, pure): the calibrated mouth poses as
-  `(volts, seconds)` segments: `CLOSE`, `RELAX`, `open_fully(seconds)` and
-  `rest(seconds)`.
+  `(start_volts, end_volts, seconds)` segments built with `hold()` and
+  `ramp()`: `CLOSE`, `RELAX`, `open_fully(seconds)` (ramps over
+  `OPEN_RAMP_S` = 0.25 s, then holds) and `rest(seconds)`, plus
+  `describe()` for log lines.
 - `motor_test/ports.py`: the `MotorOutput` protocol, with
   `drive(count)` (signed) and `stop()`.
 - `motor_test/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
@@ -166,8 +173,9 @@ The app must come back on its own from any failure, without a human:
     is symmetric, and has the requested number of steps. A full-supply
     peak caps at 4095. Square is +1024 for the first half and −1024 for
     the second for ±3 V/12 V, and caps at ±4095. Constant −6 V/12 V is
-    −2048 at every step. The −6/−3/0 V hold sequence at 50 ms steps is 10,
-    20 and 40 steps.
+    −2048 at every step. The −6/−3/0 V holds at 50 ms steps are 10, 20
+    and 40 steps, and a 0 → −6 V ramp over 0.25 s is −410, −819, −1229,
+    −1638, −2048.
   - Invalid inputs raise `ValueError`.
   - `run_profiles_loop` drives each motor with its own profile in
     lockstep, repeats the cycle, stops every motor when interrupted
@@ -190,8 +198,8 @@ The app must come back on its own from any failure, without a human:
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
   - `main.build_profiles` holds motor A at 0 V and plays the mouth demo
-    (+341 ×5, 0 ×30, −683 ×10, 0 ×30, −2048 ×10) over a 4.25 s cycle,
-    inside the 10 s watchdog with two cycles to spare.
+    (+341 ×5, 0 ×30, −683 ×10, 0 ×30, the 5-step ramp, −2048 ×10) over a
+    4.5 s cycle, inside the 10 s watchdog with two cycles to spare.
   - The mouth poses match the calibration table.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
