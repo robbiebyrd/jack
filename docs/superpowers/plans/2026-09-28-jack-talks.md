@@ -23,7 +23,7 @@
 - Every duration in `TalkSettings` is a whole number of 20 ms ticks.
 - pymumble is pinned to commit `a560e6013dfbccb3666ce8756e1ca6b790bf05c8` and installed with `--no-deps` (apt supplies opuslib and protobuf), unless Task 1 records otherwise.
 - Match the surrounding style: module docstring on every module, type hints, short functions, comments only for what/why.
-- Secrets never go in the repo (it is public). The Mumble password lives only in `/etc/jack/jack.env` and `/etc/mumble-server.ini` on the Pi.
+- Secrets never go in the repo (it is public). The Mumble password lives only in `/etc/jack/jack.env` and `/etc/mumble/mumble-server.ini` on the Pi.
 
 ## Review Focus
 
@@ -49,12 +49,12 @@ Boss runs on the Pi:
 ```bash
 sudo apt-get update
 sudo apt-get install -y mumble-server python3-alsaaudio python3-opuslib python3-protobuf python3-venv
-sudo sed -i 's/^;\?serverpassword=.*/serverpassword=spike-only-password/' /etc/mumble-server.ini
+sudo sed -i 's/^;\?serverpassword=.*/serverpassword=spike-only-password/' /etc/mumble/mumble-server.ini
 sudo systemctl restart mumble-server
-grep '^serverpassword=' /etc/mumble-server.ini
+grep '^serverpassword=' /etc/mumble/mumble-server.ini
 ```
 
-Expected: the last line prints `serverpassword=spike-only-password`. If the `grep` prints nothing, the ini uses a different key layout; stop and read `/etc/mumble-server.ini` with Boss.
+Expected: the last line prints `serverpassword=spike-only-password`. If the `grep` prints nothing, the ini uses a different key layout; stop and read `/etc/mumble/mumble-server.ini` with Boss.
 
 - [ ] **Step 2: Create a throwaway venv and install pymumble without dependencies**
 
@@ -2264,7 +2264,7 @@ After `systemctl daemon-reload`, add `systemctl try-restart jack.service` (so a 
 
 ```bash
 echo "Installed. If /dev/i2c-1 is missing, reboot: sudo reboot"
-echo "To talk: set serverpassword= in /etc/mumble-server.ini and JACK_MUMBLE_PASSWORD= in $ENV_FILE"
+echo "To talk: set serverpassword= in /etc/mumble/mumble-server.ini and JACK_MUMBLE_PASSWORD= in $ENV_FILE"
 echo "to the same password, then: sudo systemctl restart mumble-server jack"
 ```
 
@@ -2282,7 +2282,7 @@ Jack plays whatever is said in its Mumble server's root channel and moves the mo
 
 1. Install the Mumble desktop client on your computer and connect to `10.10.0.54`,
    port `64738`, with the server password. Use push-to-talk.
-2. The server password is set on the Pi in `/etc/mumble-server.ini` (`serverpassword=`) and
+2. The server password is set on the Pi in `/etc/mumble/mumble-server.ini` (`serverpassword=`) and
    `/etc/jack/jack.env` (`JACK_MUMBLE_PASSWORD=`); both must match. After changing them:
    `sudo systemctl restart mumble-server jack`.
 
@@ -2332,7 +2332,7 @@ Expected: completes; `journalctl -u jack -n 5` shows `JACK_MUMBLE_PASSWORD is em
 
 - [ ] **Step 3: Boss sets the real password in both places and restarts**
 
-Edit `/etc/mumble-server.ini` (`serverpassword=`) and `/etc/jack/jack.env` (`JACK_MUMBLE_PASSWORD=`), then `sudo systemctl restart mumble-server jack`.
+Edit `/etc/mumble/mumble-server.ini` (`serverpassword=`) and `/etc/jack/jack.env` (`JACK_MUMBLE_PASSWORD=`), then `sudo systemctl restart mumble-server jack`.
 Expected in `journalctl -u jack -f`: `Connected to Mumble`, then `Talking: …`. No underrun lines while idle.
 
 - [ ] **Step 4: Tune with a WAV**
