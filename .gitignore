@@ -1,2 +1,5 @@
 .remember
 .claude
+.venv/
+__pycache__/
+.pytest_cache/
