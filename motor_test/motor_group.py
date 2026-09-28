@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 
+from motor_test.attempt_all import attempt_all
 from motor_test.ports import MotorOutput
 
 
@@ -23,11 +24,4 @@ class MotorGroup:
 
     def stop(self) -> None:
         """Stop every motor, even if stopping one fails, then re-raise the first failure."""
-        failures = []
-        for motor in self._motors:
-            try:
-                motor.stop()
-            except Exception as failure:
-                failures.append(failure)
-        if failures:
-            raise failures[0]
+        attempt_all(motor.stop for motor in self._motors)
