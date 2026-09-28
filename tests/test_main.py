@@ -56,3 +56,15 @@ def test_speaking_phrases_ping_the_watchdog_in_time():
 def test_consecutive_speaking_cycles_differ():
     rng = random.Random(1)
     assert main.speaking_cycle(rng) != main.speaking_cycle(rng)
+
+
+def test_mumble_password_comes_from_the_environment():
+    assert main.mumble_password({"JACK_MUMBLE_PASSWORD": "s3cret"}) == "s3cret"
+
+
+@pytest.mark.parametrize("environ", [{}, {"JACK_MUMBLE_PASSWORD": ""}])
+def test_missing_mumble_password_exits_with_where_to_set_it(environ):
+    with pytest.raises(SystemExit) as exit_info:
+        main.mumble_password(environ)
+    assert "JACK_MUMBLE_PASSWORD" in str(exit_info.value.code)
+    assert "/etc/jack/jack.env" in str(exit_info.value.code)
