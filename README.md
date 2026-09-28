@@ -47,6 +47,30 @@ are capped at 3 s, and always end braked.
 
 After each deploy, the Pi's green and red onboard LEDs blink for 10 s.
 
+## Talking
+
+Jack plays whatever is said in its Mumble server's root channel and moves the mouth with it.
+
+1. Install the Mumble desktop client on your computer and connect to `10.10.0.54`,
+   port `64738`, with the server password. Use push-to-talk.
+2. The server password is set on the Pi in `/etc/mumble-server.ini` (`serverpassword=`) and
+   `/etc/jack/jack.env` (`JACK_MUMBLE_PASSWORD=`); both must match. After changing them:
+   `sudo systemctl restart mumble-server jack`.
+
+### Tuning the lip sync
+
+Record a WAV of speech, convert it to mono 16-bit 48 kHz on the Mac, copy it to the Pi and play it
+through the same loop, overriding any setting from `motor_test/talk_settings.py`:
+
+```bash
+afconvert -f WAVE -d LEI16@48000 -c 1 speech.m4a speech.wav
+scp speech.wav 10.10.0.54:/tmp/
+ssh -t 10.10.0.54 'sudo systemctl stop jack && /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py /tmp/speech.wav --release-s 0.1'
+```
+
+Run with `--help` for every setting. When you like a set of values, make them the defaults in
+`motor_test/talk_settings.py`, then `sudo systemctl start jack`.
+
 ## Operate
 
 ```bash

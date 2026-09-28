@@ -27,6 +27,7 @@ class Deployment:
     systemctl_log: Path
     leds_dir: Path
     sleep_log: Path
+    pip_log: Path
     env: dict
 
     def commit_and_push(self, relative_path, content):
@@ -51,6 +52,11 @@ class Deployment:
             return []
         return self.systemctl_log.read_text().splitlines()
 
+    def pip_runs(self):
+        if not self.pip_log.exists():
+            return []
+        return self.pip_log.read_text().splitlines()
+
     def flashes(self):
         if not self.sleep_log.exists():
             return []
@@ -68,6 +74,7 @@ def deployment(tmp_path):
     shutil.copy(UPDATE_SCRIPT, work / "deploy" / "jack-update.sh")
     shutil.copy(FLASH_SCRIPT, work / "deploy" / "flash-leds.sh")
     (work / "main.py").write_text("print('v1')\n")
+    (work / "requirements-pi.txt").write_text("pymumble @ git+https://example.invalid/pymumble@one\n")
     git(work, "add", ".")
     git(work, "commit", "-m", "initial")
     git(work, "push", "-u", "origin", "main")
@@ -84,15 +91,30 @@ def deployment(tmp_path):
     leds_dir = make_fake_leds(tmp_path / "leds")
     sleep_log = tmp_path / "sleep.log"
 
+    venv_dir = tmp_path / "venv"
+    (venv_dir / "bin").mkdir(parents=True)
+    pip_log = tmp_path / "pip.log"
+    pip = venv_dir / "bin" / "pip"
+    # Records its arguments and the requirements it was given; PIP_EXIT makes it fail.
+    pip.write_text(
+        '#!/bin/sh\n'
+        'echo "$@" >> "$PIP_LOG"\n'
+        'while [ $# -gt 0 ]; do if [ "$1" = "-r" ]; then cat "$2" >> "$PIP_LOG"; fi; shift; done\n'
+        'exit "${PIP_EXIT:-0}"\n'
+    )
+    pip.chmod(0o755)
+
     env = {
         **os.environ,
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
         "JACK_REPO_DIR": str(checkout),
         "SYSTEMCTL_LOG": str(systemctl_log),
         "JACK_LEDS_DIR": str(leds_dir),
+        "JACK_VENV_DIR": str(venv_dir),
+        "PIP_LOG": str(pip_log),
         **install_recording_sleep(bin_dir, sleep_log, tmp_path / "leds-during-sleep.txt"),
     }
-    return Deployment(origin, work, checkout, systemctl_log, leds_dir, sleep_log, env)
+    return Deployment(origin, work, checkout, systemctl_log, leds_dir, sleep_log, pip_log, env)
 
 
 def test_up_to_date_checkout_is_left_alone(deployment):
@@ -180,3 +202,31 @@ def test_led_failure_does_not_fail_the_deploy(deployment):
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
     assert deployment.restarts() == ["try-restart jack.service"]
     assert "LED flash failed" in result.stdout
+
+
+def test_changed_requirements_are_installed_before_the_restart(deployment):
+    new_requirement = "pymumble @ git+https://example.invalid/pymumble@two"
+    new_head = deployment.commit_and_push("requirements-pi.txt", new_requirement + "\n")
+    result = deployment.run_update()
+    assert result.returncode == 0, result.stderr
+    assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
+    runs = deployment.pip_runs()
+    assert runs[0].startswith("install --quiet --no-deps -r ")
+    assert runs[1] == new_requirement
+    assert deployment.restarts() == ["try-restart jack.service"]
+
+
+def test_unchanged_requirements_skip_pip(deployment):
+    deployment.commit_and_push("main.py", "print('v2')\n")
+    deployment.run_update()
+    assert deployment.pip_runs() == []
+
+
+def test_failed_requirements_install_leaves_the_old_deploy_running(deployment):
+    before = git(deployment.checkout, "rev-parse", "HEAD")
+    deployment.commit_and_push("requirements-pi.txt", "pymumble @ git+https://example.invalid/pymumble@broken\n")
+    deployment.env["PIP_EXIT"] = "1"
+    result = deployment.run_update()
+    assert result.returncode != 0
+    assert git(deployment.checkout, "rev-parse", "HEAD") == before
+    assert deployment.restarts() == []

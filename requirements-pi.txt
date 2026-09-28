@@ -1,0 +1,3 @@
+# Installed on the Pi into /opt/jack-venv with --no-deps (deploy/install.sh, deploy/jack-update.sh);
+# every other dependency comes from apt. Pinned to the commit the talk plan's spike proved on the Pi.
+pymumble @ git+https://github.com/azlux/pymumble@a560e6013dfbccb3666ce8756e1ca6b790bf05c8

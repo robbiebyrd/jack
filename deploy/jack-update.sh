@@ -8,6 +8,7 @@ main() {
   local repo_dir="${JACK_REPO_DIR:-/opt/jack}"
   local branch=main
   local service=jack.service
+  local venv_dir="${JACK_VENV_DIR:-/opt/jack-venv}"
 
   cd "$repo_dir"
   git fetch --quiet origin "$branch"
@@ -20,6 +21,13 @@ main() {
   fi
 
   echo "Deploying $target (was $current)"
+  # Install a changed pymumble pin before switching code, so code never runs without it.
+  # A failed install stops here (set -e): the old commit keeps running and the next poll retries.
+  if ! git diff --quiet "$current" "$target" -- requirements-pi.txt; then
+    local requirements="$repo_dir/.git/jack-requirements-pi.txt"
+    git show "$target:requirements-pi.txt" > "$requirements"
+    "$venv_dir/bin/pip" install --quiet --no-deps -r "$requirements"
+  fi
   git reset --hard --quiet "origin/$branch"
   systemctl try-restart "$service"
   # Blink the onboard LEDs so someone at the bench can see a deploy landed.

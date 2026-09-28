@@ -6,6 +6,8 @@ set -euo pipefail
 REPO_URL=https://github.com/robbiebyrd/jack.git
 REPO_DIR=/opt/jack
 BRANCH=main
+VENV_DIR=/opt/jack-venv
+ENV_FILE=/etc/jack/jack.env
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run as root: sudo bash install.sh" >&2
@@ -13,17 +15,31 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 apt-get update
-apt-get install -y git python3-smbus2 raspi-config
+apt-get install -y git python3-smbus2 raspi-config mumble-server python3-alsaaudio python3-opuslib python3-protobuf python3-venv
 
 # 0 = enable in raspi-config's non-interactive mode
 raspi-config nonint do_i2c 0
 
 if ! id jack &>/dev/null; then
-  useradd --system --user-group --no-create-home --shell /usr/sbin/nologin --groups i2c jack
+  useradd --system --user-group --no-create-home --shell /usr/sbin/nologin --groups i2c,audio jack
 fi
+# Existing installs predate the audio group.
+usermod --append --groups i2c,audio jack
 
 if [[ ! -d "$REPO_DIR/.git" ]]; then
   git clone --branch "$BRANCH" "$REPO_URL" "$REPO_DIR"
+fi
+
+if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+  python3 -m venv --system-site-packages "$VENV_DIR"
+fi
+"$VENV_DIR/bin/pip" install --quiet --no-deps -r "$REPO_DIR/requirements-pi.txt"
+
+# The Mumble password never lives in the (public) repo. Created empty once; never overwritten.
+install -d -m 0750 -o root -g jack "$(dirname "$ENV_FILE")"
+if [[ ! -f "$ENV_FILE" ]]; then
+  install -m 0640 -o root -g jack /dev/null "$ENV_FILE"
+  echo "JACK_MUMBLE_PASSWORD=" > "$ENV_FILE"
 fi
 
 install -m 0644 \
@@ -32,6 +48,9 @@ install -m 0644 \
   "$REPO_DIR/deploy/jack-update.timer" \
   /etc/systemd/system/
 systemctl daemon-reload
+systemctl try-restart jack.service
 systemctl enable --now jack.service jack-update.timer
 
 echo "Installed. If /dev/i2c-1 is missing, reboot: sudo reboot"
+echo "To talk: set serverpassword= in /etc/mumble-server.ini and JACK_MUMBLE_PASSWORD= in $ENV_FILE"
+echo "to the same password, then: sudo systemctl restart mumble-server jack"

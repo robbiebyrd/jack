@@ -29,8 +29,14 @@ def test_app_is_supervised_by_the_systemd_watchdog():
 def test_app_runs_as_jack_at_boot_without_login():
     unit = load_unit()
     assert unit["Service"]["User"] == "jack"
-    assert unit["Service"]["SupplementaryGroups"] == "i2c"
+    assert unit["Service"]["SupplementaryGroups"] == "i2c audio"
     assert unit["Install"]["WantedBy"] == "multi-user.target"
+
+
+def test_app_runs_on_the_venv_python_with_its_secrets_file():
+    unit = load_unit()
+    assert unit["Service"]["ExecStart"] == "/opt/jack-venv/bin/python /opt/jack/main.py"
+    assert unit["Service"]["EnvironmentFile"] == "/etc/jack/jack.env"
 
 
 def test_updater_gives_up_on_a_hung_fetch():
