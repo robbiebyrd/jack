@@ -1,22 +1,7 @@
 import pytest
 
 from motor_test.smoke_test import run_ramp_loop
-
-
-class RecordingMotor:
-    """MotorOutput that records the commands it receives, in order."""
-
-    def __init__(self):
-        self.calls = []
-
-    def set_forward(self):
-        self.calls.append(("forward",))
-
-    def set_duty(self, count):
-        self.calls.append(("duty", count))
-
-    def stop(self):
-        self.calls.append(("stop",))
+from tests.fakes import RecordingMotor
 
 
 class LoopEnded(Exception):
