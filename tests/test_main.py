@@ -29,8 +29,8 @@ def test_cycle_is_well_inside_the_watchdog_timeout():
     assert cycle_s() * 2 < watchdog_s
 
 
-def test_demo_cycle_is_four_and_a_quarter_seconds():
-    assert cycle_s() == pytest.approx(4.25)
+def test_demo_cycle_is_four_and_a_half_seconds():
+    assert cycle_s() == pytest.approx(4.5)
 
 
 def play_step(profiles, step):
@@ -46,6 +46,7 @@ def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_a_off():
         + [0] * 30  # rest 1.5 s
         + [-683] * 10  # relax: -2 V for 0.5 s
         + [0] * 30  # rest 1.5 s
-        + [-2048] * 10  # open fully: -6 V for 0.5 s
+        + [-410, -819, -1229, -1638, -2048]  # open fully: ramp 0 -> -6 V over 0.25 s
+        + [-2048] * 10  # then hold -6 V for 0.5 s
     )
     assert a_counts == [0] * len(b_counts)

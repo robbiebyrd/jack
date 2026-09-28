@@ -45,27 +45,34 @@ def constant_profile(volts: float, supply_volts: float, steps: int) -> list[int]
     return [volts_to_count(volts, supply_volts)] * steps
 
 
-def hold_sequence_profile(
-    segments: Sequence[tuple[float, float]], supply_volts: float, step_s: float
+def segment_profile(
+    segments: Sequence[tuple[float, float, float]], supply_volts: float, step_s: float
 ) -> list[int]:
-    """Return one cycle that holds each `(volts, seconds)` segment in order, one count per `step_s`.
+    """Return one cycle playing each `(start_volts, end_volts, seconds)` segment in order.
 
-    Every duration must be a whole number of steps so the cycle keeps its exact length.
+    A segment with equal start and end holds that level; otherwise it ramps
+    linearly, reaching `end_volts` on its last step. There is one count per
+    `step_s`, and every duration must be a whole number of steps so the cycle
+    keeps its exact length.
     """
     if supply_volts <= 0:
         raise ValueError(f"supply_volts must be positive, got {supply_volts}")
     if step_s <= 0:
         raise ValueError(f"step_s must be positive, got {step_s}")
     if not segments:
-        raise ValueError("segments must contain at least one (volts, seconds) pair")
+        raise ValueError("segments must contain at least one (start_volts, end_volts, seconds) segment")
 
     counts = []
-    for volts, seconds in segments:
-        _check_signed_volts("volts", volts, supply_volts)
+    for start_volts, end_volts, seconds in segments:
+        _check_signed_volts("start_volts", start_volts, supply_volts)
+        _check_signed_volts("end_volts", end_volts, supply_volts)
         steps = round(seconds / step_s)
         if steps < 1 or not math.isclose(steps * step_s, seconds):
             raise ValueError(f"{seconds} s is not a whole, non-zero number of {step_s} s steps")
-        counts += [volts_to_count(volts, supply_volts)] * steps
+        counts += [
+            volts_to_count(start_volts + (end_volts - start_volts) * step / steps, supply_volts)
+            for step in range(1, steps + 1)
+        ]
     return counts
 
 

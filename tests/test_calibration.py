@@ -1,9 +1,11 @@
 import pytest
 
-from motor_test.calibration import MAX_MOVE_S, Move, parse_command, run_calibration
+from motor_test.calibration import MAX_MOVE_S, parse_command, run_calibration
+from motor_test.mouth import CLOSE, RELAX, hold, open_fully
 from tests.fakes import RecordingMotor
 
 SUPPLY = 12.0
+STEP_S = 0.05
 
 
 class MotorThatFailsToDrive(RecordingMotor):
@@ -26,21 +28,22 @@ def scripted_input(*lines, then=EOFError):
 
 def run(motor, *lines, then=EOFError):
     output, slept = [], []
-    run_calibration(motor, SUPPLY, scripted_input(*lines, then=then), output.append, slept.append)
+    run_calibration(motor, SUPPLY, STEP_S, scripted_input(*lines, then=then), output.append, slept.append)
     return output, slept
 
 
-def test_parses_volts_and_seconds():
-    assert parse_command("-4.5 0.8", SUPPLY) == (Move(volts=-4.5, seconds=0.8),)
+def drives(motor):
+    return [call[1] for call in motor.calls if call[0] == "drive"]
 
 
-def test_close_and_relax_name_the_calibrated_poses():
-    assert parse_command("close", SUPPLY) == (Move(1.0, 0.25),)
-    assert parse_command("relax", SUPPLY) == (Move(-2.0, 0.5),)
+def test_parses_volts_and_seconds_as_a_hold():
+    assert parse_command("-4.5 0.8", SUPPLY) == (hold(-4.5, 0.8),)
 
 
-def test_open_holds_fully_open_for_the_given_seconds():
-    assert parse_command("open 0.5", SUPPLY) == (Move(-6.0, 0.5),)
+def test_close_relax_and_open_name_the_calibrated_poses():
+    assert parse_command("close", SUPPLY) == CLOSE
+    assert parse_command("relax", SUPPLY) == RELAX
+    assert parse_command("open 0.5", SUPPLY) == open_fully(0.5)
 
 
 @pytest.mark.parametrize("line", ["q", "quit", "  q  "])
@@ -70,12 +73,26 @@ def test_bad_commands_are_rejected(line):
         parse_command(line, SUPPLY)
 
 
-def test_move_drives_for_the_duration_then_brakes():
+def test_move_drives_step_by_step_for_the_duration_then_brakes():
     motor = RecordingMotor()
     output, slept = run(motor, "-6 0.5")
-    assert motor.calls[:2] == [("drive", -2048), ("stop",)]
-    assert slept == [0.5]
+    assert motor.calls[:11] == [("drive", -2048)] * 10 + [("stop",)]
+    assert slept == [STEP_S] * 10
     assert output == ["moved B -6.0 V for 0.5 s, braked"]
+
+
+def test_duration_that_is_not_whole_steps_is_rejected_without_moving():
+    motor = RecordingMotor()
+    output, slept = run(motor, "-4.5 0.33")
+    assert drives(motor) == []
+    assert slept == []
+    assert len(output) == 1 and "steps" in output[0]
+
+
+def test_open_ramps_up_before_holding():
+    motor = RecordingMotor()
+    run(motor, "open 0.5")
+    assert drives(motor) == [-410, -819, -1229, -1638, -2048] + [-2048] * 10
 
 
 def test_bad_line_reports_the_problem_without_moving_the_motor():
@@ -119,7 +136,7 @@ def test_ctrl_c_during_a_move_brakes():
         raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
-        run_calibration(motor, SUPPLY, scripted_input("-6 2"), lambda text: None, sleep)
+        run_calibration(motor, SUPPLY, STEP_S, scripted_input("-6 2"), lambda text: None, sleep)
     assert motor.calls[0] == ("drive", -2048)
     assert motor.calls[-1] == ("stop",)
 
@@ -134,6 +151,6 @@ def test_failed_drive_still_brakes_and_propagates():
 def test_named_pose_drives_then_brakes():
     motor = RecordingMotor()
     output, slept = run(motor, "close")
-    assert motor.calls[:2] == [("drive", 341), ("stop",)]
-    assert slept == [0.25]
+    assert motor.calls[:6] == [("drive", 341)] * 5 + [("stop",)]
+    assert slept == [STEP_S] * 5
     assert output == ["moved B +1.0 V for 0.25 s, braked"]
