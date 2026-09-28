@@ -25,3 +25,7 @@ def test_configured_ramp_peaks_at_six_volts_over_a_two_second_cycle():
     counts = main.ramp_profile(main.PEAK_VOLTS, main.SUPPLY_VOLTS, main.STEPS_PER_CYCLE)
     assert max(counts) == 2048
     assert main.CYCLE_S / main.STEPS_PER_CYCLE == pytest.approx(0.04)
+
+
+def test_both_hat_channels_are_driven():
+    assert main.DRIVEN_CHANNELS == (main.MOTOR_A, main.MOTOR_B)
