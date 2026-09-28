@@ -21,7 +21,7 @@ main() {
 
   echo "Deploying $target (was $current)"
   git reset --hard --quiet "origin/$branch"
-  systemctl restart "$service"
+  systemctl try-restart "$service"
 }
 
 main "$@"

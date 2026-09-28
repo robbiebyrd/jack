@@ -94,14 +94,14 @@ def test_new_commit_is_deployed_and_app_restarted_once(deployment):
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
     assert (deployment.checkout / "main.py").read_text() == "print('v2')\n"
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
 
 
 def test_second_run_after_deploy_does_not_restart_again(deployment):
     deployment.commit_and_push("main.py", "print('v2')\n")
     deployment.run_update()
     deployment.run_update()
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
 
 
 def test_local_edits_on_the_pi_are_discarded(deployment):
@@ -120,7 +120,7 @@ def test_force_pushed_history_is_followed(deployment):
     result = deployment.run_update()
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == rewritten
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
 
 
 def test_fetch_failure_leaves_checkout_and_app_untouched(deployment):
@@ -140,4 +140,4 @@ def test_commit_that_rewrites_the_update_script_completes_cleanly(deployment):
     result = deployment.run_update()
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
-    assert deployment.restarts() == ["restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service"]
