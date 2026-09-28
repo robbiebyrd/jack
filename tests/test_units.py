@@ -37,3 +37,16 @@ def test_updater_gives_up_on_a_hung_fetch():
     unit = load_unit("jack-update.service")
     assert unit["Service"]["Type"] == "oneshot"
     assert unit["Service"]["TimeoutStartSec"] == "120"
+
+
+def test_updater_service_runs_the_update_script():
+    unit = load_unit("jack-update.service")
+    assert unit["Service"]["ExecStart"] == "/bin/bash /opt/jack/deploy/jack-update.sh"
+
+
+def test_updater_timer_polls_every_60_seconds_precisely():
+    unit = load_unit("jack-update.timer")
+    assert unit["Timer"]["OnBootSec"] == "60"
+    assert unit["Timer"]["OnUnitActiveSec"] == "60"
+    assert unit["Timer"]["AccuracySec"] == "1s"
+    assert unit["Install"]["WantedBy"] == "timers.target"
