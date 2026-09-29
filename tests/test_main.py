@@ -134,3 +134,10 @@ def test_applied_overrides_are_listed_for_the_log():
         "open_curve=1.5, gate_open_db=-20.0"
     )
     assert main.describe_overrides(TalkSettings()) == ""
+
+
+@pytest.mark.parametrize("var, value", [("JACK_OPEN_MIN_V", "nan"), ("JACK_OPEN_MAX_V", "inf")])
+def test_non_finite_override_exits_naming_the_variable(var, value):
+    with pytest.raises(SystemExit) as exit_info:
+        main.talk_settings({var: value})
+    assert exit_info.value.code == f"{var}={value!r} in /etc/jack/jack.env is not a number"

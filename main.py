@@ -1,6 +1,7 @@
 """Jack talks: Boss's voice from Mumble plays on the 3.5 mm jack and the mouth (motor B) moves with it; motor A stays off."""
 
 import dataclasses
+import math
 import os
 import random
 import signal
@@ -101,9 +102,12 @@ def talk_settings(environ: Mapping[str, str] = os.environ) -> TalkSettings:
         if not value:
             continue
         try:
-            overrides[field.name] = float(value)
+            number = float(value)
         except ValueError:
-            raise SystemExit(f"{var}={value!r} in /etc/jack/jack.env is not a number") from None
+            number = math.nan
+        if not math.isfinite(number):
+            raise SystemExit(f"{var}={value!r} in /etc/jack/jack.env is not a number")
+        overrides[field.name] = number
     try:
         settings = TalkSettings(**overrides)
         check_supply(settings, SUPPLY_VOLTS)
