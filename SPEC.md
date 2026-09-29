@@ -207,7 +207,7 @@ motor B out.
 | State | Motor B | Next |
 |---|---|---|
 | Closed | 0 V (short brake; the mouth holds closed unpowered) | level ≥ `GATE_OPEN_DB` → Open |
-| Open | −(`OPEN_MIN_V` + (`OPEN_MAX_V` − `OPEN_MIN_V`) × loudness), loudness = level scaled 0..1 between `GATE_OPEN_DB` and `FULL_DB`, clamped | level < `GATE_CLOSE_DB` → Closing |
+| Open | −(`OPEN_MIN_V` + (`OPEN_MAX_V` − `OPEN_MIN_V`) × loudness), loudness = (level scaled 0..1 between `GATE_OPEN_DB` and `FULL_DB`, clamped) ^ `OPEN_CURVE` | level < `GATE_CLOSE_DB` → Closing |
 | Closing | +`CLOSE_V` for `CLOSE_S`, then → Closed | level ≥ `GATE_OPEN_DB` → Open at once (the next syllable interrupts the close) |
 
 - **Hysteresis:** `GATE_CLOSE_DB` is below `GATE_OPEN_DB` so the mouth
@@ -227,11 +227,12 @@ basis says calibration:
 | Setting | Start | Basis |
 |---|---|---|
 | `OPEN_MIN_V` / `OPEN_MAX_V` | 2 V / 6 V | Calibration: relaxed open, fully open |
-| `OPEN_SLEW_V_PER_S` | 24 V/s | The calibrated ramp: 6 V over `OPEN_RAMP_S` = 0.25 s |
-| `CLOSE_V` / `CLOSE_S` | 0.5 V / 0.16 s | The random-speech demo's syllable close (0.5 V, 0.15 s), which Boss saw as smooth and lifelike (2026-09-28), rounded to whole 20 ms ticks; maybe a little slow |
+| `OPEN_SLEW_V_PER_S` | 48 V/s | Boss: respond twice as fast (2026-09-28). Risk: the calibrated ramp was 24 V/s (6 V over `OPEN_RAMP_S` = 0.25 s) because stepping to -6 V strained the motor; 48 V/s trades some of that margin for speed |
+| `OPEN_CURVE` | 2.0 | Boss: too sensitive, wanted a curve (2026-09-28); medium syllables open ~a quarter |
+| `CLOSE_V` / `CLOSE_S` | 0.5 V / 0.08 s | Boss: respond twice as fast (2026-09-28) (whole 20 ms ticks); the random-speech demo Boss saw as lifelike used 0.5 V for 0.15 s |
 | `STALL_V` / `MAX_STALL_S` | 5 V / 0.5 s | The mouth demo held −6 V for 0.5 s |
-| `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.08 s | Guess |
-| `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −35 / −40 / −10 dBFS | Guess; depends on Boss's mic gain |
+| `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.04 s | `ATTACK_S` guess; `RELEASE_S`: Boss: respond twice as fast (2026-09-28) |
+| `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −25 / −30 / −10 dBFS | Measured from Boss's voice via Mumble on the Pi (2026-09-28): speech peaks p75 −24 / p90 −16 / p99 −10 dBFS, pauses −70..−50 (`FULL_DB` unchanged) |
 | `MOUTH_LEAD_MS` | 0 ms | Tune by eye |
 | `MAX_BACKLOG_MS` | 200 ms | Guess |
 

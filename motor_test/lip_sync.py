@@ -44,6 +44,8 @@ class MouthController:
     def _open_magnitude(self, level_db: float) -> float:
         s = self._settings
         loudness = min(1.0, max(0.0, (level_db - s.gate_open_db) / (s.full_db - s.gate_open_db)))
+        # The curve keeps medium syllables near relaxed open so only loud peaks open wide.
+        loudness = loudness**s.open_curve
         target = s.open_min_v + (s.open_max_v - s.open_min_v) * loudness
         if self._stall_capped:
             target = min(target, s.open_min_v)

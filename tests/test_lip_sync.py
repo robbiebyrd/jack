@@ -3,11 +3,13 @@ import pytest
 from motor_test.lip_sync import MouthController
 from motor_test.talk_settings import TalkSettings
 
-QUIET = -60.0
-GATE = -35.0  # default gate_open_db
-BETWEEN_GATES = -38.0  # between gate_close_db (-40) and gate_open_db
-BELOW_CLOSE = -45.0
-FULL = -10.0  # default full_db
+_DEFAULTS = TalkSettings()
+GATE = _DEFAULTS.gate_open_db
+BETWEEN_GATES = (_DEFAULTS.gate_close_db + _DEFAULTS.gate_open_db) / 2
+BELOW_CLOSE = _DEFAULTS.gate_close_db - 5
+QUIET = _DEFAULTS.gate_close_db - 20
+FULL = _DEFAULTS.full_db
+HALF_LOUD = (_DEFAULTS.gate_open_db + _DEFAULTS.full_db) / 2
 
 
 def unslewed(**overrides):
@@ -32,7 +34,15 @@ def test_full_level_opens_fully_and_louder_stays_at_fully_open():
 
 
 def test_opening_is_proportional_to_loudness_between_gate_and_full():
-    assert unslewed().update(-22.5) == pytest.approx(-4.0)
+    assert unslewed(open_curve=1.0).update(HALF_LOUD) == pytest.approx(-4.0)
+
+
+def test_curve_opens_a_half_loud_syllable_a_quarter_of_the_way():
+    assert unslewed().update(HALF_LOUD) == pytest.approx(-3.0)
+
+
+def test_curve_of_one_is_linear():
+    assert unslewed(open_curve=1.0).update(HALF_LOUD) == pytest.approx(-4.0)
 
 
 def test_between_the_gates_an_open_mouth_stays_open():
@@ -53,9 +63,9 @@ def test_next_syllable_interrupts_the_close_pulse():
     assert run(unslewed(), [GATE, BELOW_CLOSE, GATE]) == [-2.0, 0.5, -2.0]
 
 
-def test_opening_is_slew_limited_to_24_volts_per_second():
+def test_opening_is_slew_limited_to_48_volts_per_second():
     controller = MouthController(TalkSettings())
-    assert run(controller, [FULL] * 3) == pytest.approx([-0.48, -0.96, -1.44])
+    assert run(controller, [FULL] * 3) == pytest.approx([-0.96, -1.92, -2.88])
 
 
 def test_closing_down_to_a_smaller_opening_is_not_slew_limited():
