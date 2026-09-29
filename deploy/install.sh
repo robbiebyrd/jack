@@ -48,8 +48,10 @@ install -m 0644 \
   "$REPO_DIR/deploy/jack-update.timer" \
   /etc/systemd/system/
 systemctl daemon-reload
-systemctl try-restart jack.service || echo "jack.service did not start yet (see: journalctl -u jack); set the password below, then restart it"
-systemctl enable --now jack.service jack-update.timer
+systemctl enable jack.service jack-update.timer
+systemctl start jack-update.timer
+# Restart (or first start) the app so a changed unit takes effect; on a fresh install it can't start until the password is set.
+systemctl restart jack.service || echo "jack.service did not start yet (see: journalctl -u jack); set the password below, then restart it"
 
 echo "Installed. If /dev/i2c-1 is missing, reboot: sudo reboot"
 echo "To talk: set serverpassword= in /etc/mumble/mumble-server.ini and JACK_MUMBLE_PASSWORD= in $ENV_FILE"
