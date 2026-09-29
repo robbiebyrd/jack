@@ -60,7 +60,21 @@ Jack plays whatever is said in its Mumble server's root channel and moves the mo
 
 ### Tuning the lip sync
 
-Record a WAV of speech, convert it to mono 16-bit 48 kHz on the Mac, copy it to the Pi and play it
+Quickest: override any setting on the Pi. Add `JACK_<SETTING_NAME>` lines to `/etc/jack/jack.env`
+(names are the fields of `motor_test/talk_settings.py`, upper-case) and restart:
+
+```bash
+# /etc/jack/jack.env
+JACK_GATE_OPEN_DB=-20
+JACK_OPEN_CURVE=1.5
+```
+
+```bash
+sudo systemctl restart jack
+journalctl -u jack -n 20   # an invalid value stops the app with a one-line message here
+```
+
+Or try a WAV offline. Record a WAV of speech, convert it to mono 16-bit 48 kHz on the Mac, copy it to the Pi and play it
 through the same loop, overriding any setting from `motor_test/talk_settings.py`:
 
 ```bash
@@ -69,8 +83,8 @@ scp speech.wav 10.10.0.54:/tmp/
 ssh -t 10.10.0.54 'sudo systemctl stop jack && /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py /tmp/speech.wav --release-s 0.1'
 ```
 
-Run with `--help` for every setting. When you like a set of values, make them the defaults in
-`motor_test/talk_settings.py`, then `sudo systemctl start jack`.
+Run with `--help` for every setting. When you like a set of values, put them in `/etc/jack/jack.env` (or make them the defaults in
+`motor_test/talk_settings.py`), then `sudo systemctl start jack`.
 
 ## Operate
 

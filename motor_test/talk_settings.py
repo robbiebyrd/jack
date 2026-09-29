@@ -13,7 +13,7 @@ from motor_test.ramp import whole_steps
 
 @dataclass(frozen=True)
 class TalkSettings:
-    open_min_v: float = 2.0
+    open_min_v: float = 1.0
     open_max_v: float = 6.0
     open_slew_v_per_s: float = 48.0
     open_curve: float = 2.0
@@ -23,9 +23,9 @@ class TalkSettings:
     max_stall_s: float = 0.5
     attack_s: float = 0.01
     release_s: float = 0.04
-    gate_open_db: float = -25.0
-    gate_close_db: float = -30.0
-    full_db: float = -10.0
+    gate_open_db: float = -22.0
+    gate_close_db: float = -27.0
+    full_db: float = -14.0
     mouth_lead_ms: float = 0.0
     max_backlog_ms: float = 200.0
 

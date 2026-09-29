@@ -226,18 +226,24 @@ basis says calibration:
 
 | Setting | Start | Basis |
 |---|---|---|
-| `OPEN_MIN_V` / `OPEN_MAX_V` | 2 V / 6 V | Calibration: relaxed open, fully open |
+| `OPEN_MIN_V` / `OPEN_MAX_V` | 1 V / 6 V | `OPEN_MAX_V`: calibration, fully open. `OPEN_MIN_V`: Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little (was 2 V, the calibrated relaxed open). Risk: the calibration never tested below 2 V; it is unknown that 1 V moves the mouth |
 | `OPEN_SLEW_V_PER_S` | 48 V/s | Boss: respond twice as fast (2026-09-28). Risk: the calibrated ramp was 24 V/s (6 V over `OPEN_RAMP_S` = 0.25 s) because stepping to -6 V strained the motor; 48 V/s trades some of that margin for speed |
 | `OPEN_CURVE` | 2.0 | Boss: too sensitive, wanted a curve (2026-09-28); medium syllables open ~a quarter |
 | `CLOSE_V` / `CLOSE_S` | 0.5 V / 0.08 s | Boss: respond twice as fast (2026-09-28) (whole 20 ms ticks); the random-speech demo Boss saw as lifelike used 0.5 V for 0.15 s |
 | `STALL_V` / `MAX_STALL_S` | 5 V / 0.5 s | The mouth demo held −6 V for 0.5 s |
 | `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.04 s | `ATTACK_S` guess; `RELEASE_S`: Boss: respond twice as fast (2026-09-28) |
-| `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −25 / −30 / −10 dBFS | Measured from Boss's voice via Mumble on the Pi (2026-09-28): speech peaks p75 −24 / p90 −16 / p99 −10 dBFS, pauses −70..−50 (`FULL_DB` unchanged) |
+| `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −22 / −27 / −14 dBFS | Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little. Measured from Boss's voice via Mumble on the Pi (per 20 ms frame: p75 −24, p90 −15.7, p95 −13.1, p99 −9.6 dBFS; above −25 dBFS 27% of frames, above −20 18%): the open gate at −22 opens the mouth on ~22% of frames, and `FULL_DB` −14 lets hard syllables (p90 to p95) reach fully open |
 | `MOUTH_LEAD_MS` | 0 ms | Tune by eye |
 | `MAX_BACKLOG_MS` | 200 ms | Guess |
 
 All live together in `TalkSettings`. Every duration must be a whole
 number of 20 ms ticks (as the 50 ms steps rule for the motor profiles).
+
+Every setting can be overridden on the Pi in `/etc/jack/jack.env` as
+`JACK_<SETTING_NAME>` (e.g. `JACK_GATE_OPEN_DB=-20`), then
+`sudo systemctl restart jack`. An invalid value (not a number, an impossible
+combination, or more volts than the supply) stops the app with a one-line
+message in `journalctl -u jack`.
 
 ### Tuning tool (`lipsync_wav.py`)
 
@@ -381,7 +387,9 @@ The app must come back on its own from any failure, without a human:
   brakes every motor and closes the sink on exit.
 - `lipsync_wav.py`: composition root for the tuning tool (a `WavSource`
   in place of Mumble).
-- `main.py`: builds one `Pca9685`, both motors, the ALSA sink and the
+- `main.py`: builds the `TalkSettings` with `talk_settings()` (defaults plus
+  `JACK_<FIELD>` overrides from the environment, checked against the supply
+  before touching hardware), then one `Pca9685`, both motors, the ALSA sink and the
   Mumble bot, installs a SIGTERM handler that raises `SystemExit` so the
   loop's cleanup runs, sends `READY=1` after init, and runs the talk loop
   with `on_second` the Mumble-aware watchdog callback (`WATCHDOG=1` while the

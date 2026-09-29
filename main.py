@@ -1,5 +1,6 @@
 """Jack talks: Boss's voice from Mumble plays on the 3.5 mm jack and the mouth (motor B) moves with it; motor A stays off."""
 
+import dataclasses
 import os
 import random
 import signal
@@ -16,7 +17,7 @@ from motor_test.pca9685 import Pca9685
 from motor_test.ramp import constant_profile, segment_profile
 from motor_test.speech import random_phrase
 from motor_test.systemd_notify import notify
-from motor_test.talk_loop import run_talk_loop
+from motor_test.talk_loop import check_supply, run_talk_loop
 from motor_test.talk_settings import TalkSettings
 from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, Tb6612Motor
 
@@ -33,6 +34,8 @@ MUMBLE_HOST = "127.0.0.1"
 MUMBLE_PORT = 64738
 MUMBLE_USER = "Jack"
 MUMBLE_PASSWORD_ENV = "JACK_MUMBLE_PASSWORD"
+# Any TalkSettings field can be overridden in /etc/jack/jack.env as JACK_<FIELD>.
+SETTING_ENV_PREFIX = "JACK_"
 # Fixed pose tour: an alternative to speaking, e.g. for checking the mechanism.
 MOUTH_DEMO = (*CLOSE, *rest(1.5), *RELAX, *rest(1.5), *open_fully(0.5))
 
@@ -89,9 +92,41 @@ def mumble_password(environ: Mapping[str, str] = os.environ) -> str:
     return password
 
 
+def talk_settings(environ: Mapping[str, str] = os.environ) -> TalkSettings:
+    """TalkSettings defaults, with any JACK_<FIELD> environment variable (e.g. JACK_GATE_OPEN_DB=-20) overriding that field."""
+    overrides: dict[str, float] = {}
+    for field in dataclasses.fields(TalkSettings):
+        var = SETTING_ENV_PREFIX + field.name.upper()
+        value = environ.get(var, "")
+        if not value:
+            continue
+        try:
+            overrides[field.name] = float(value)
+        except ValueError:
+            raise SystemExit(f"{var}={value!r} in /etc/jack/jack.env is not a number") from None
+    try:
+        settings = TalkSettings(**overrides)
+        check_supply(settings, SUPPLY_VOLTS)
+    except ValueError as error:
+        raise SystemExit(f"Mouth settings from /etc/jack/jack.env are invalid: {error}") from error
+    return settings
+
+
+def describe_overrides(settings: TalkSettings) -> str:
+    """The fields that differ from the defaults, as 'name=value, ...'; empty when there are none."""
+    defaults = TalkSettings()
+    return ", ".join(
+        f"{field.name}={getattr(settings, field.name)}"
+        for field in dataclasses.fields(TalkSettings)
+        if getattr(settings, field.name) != getattr(defaults, field.name)
+    )
+
+
 def main() -> None:
     signal.signal(signal.SIGTERM, exit_on_sigterm)
-    settings = TalkSettings()
+    settings = talk_settings()
+    if overrides := describe_overrides(settings):
+        print(f"Mouth setting overrides: {overrides}")
     voice = MumbleVoice(settings.max_backlog_frames, print)
     mumble_client = connect_mumble(voice, MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, mumble_password())
     with SMBus(I2C_BUS) as bus:
