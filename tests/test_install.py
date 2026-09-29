@@ -17,3 +17,9 @@ def test_install_script_sets_up_talking():
     assert "--no-deps -r" in script
     assert "usermod --append --groups i2c,audio jack" in script
     assert "JACK_MUMBLE_PASSWORD=" in script
+
+
+def test_a_failed_app_start_does_not_abort_the_installer():
+    restart_lines = [line for line in INSTALL.read_text().splitlines() if "try-restart jack.service" in line]
+    assert len(restart_lines) == 1
+    assert "||" in restart_lines[0]

@@ -48,7 +48,7 @@ install -m 0644 \
   "$REPO_DIR/deploy/jack-update.timer" \
   /etc/systemd/system/
 systemctl daemon-reload
-systemctl try-restart jack.service
+systemctl try-restart jack.service || echo "jack.service did not start yet (see: journalctl -u jack); set the password below, then restart it"
 systemctl enable --now jack.service jack-update.timer
 
 echo "Installed. If /dev/i2c-1 is missing, reboot: sudo reboot"
