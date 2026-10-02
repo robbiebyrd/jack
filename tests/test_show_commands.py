@@ -7,8 +7,8 @@ from motor_test.control_board import ControlBoard
 from motor_test.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
 from motor_test.rate_limited_log import RateLimitedLog
 from motor_test.show_commands import (
-    CommandError, OscContext, Ping, RestCommand, SetMouthMode, SetValue, StartPose, StatusRequest, Subscribe, apply,
-    handle_osc, http_command, osc_command,
+    CommandError, OscContext, Ping, RestCommand, SetMouthMode, SetValue, StartPose, StatusRequest, Subscribe, Unsubscribe,
+    apply, handle_osc, http_command, osc_command,
 )
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
@@ -203,7 +203,7 @@ def test_a_refused_subscription_is_logged_once_per_minute():
     assert len([line for line in lines if "subscription" in line]) == 1
 
 
-@pytest.mark.parametrize("args", [[0], [70000], ["x"], [True], [1, 2]])
+@pytest.mark.parametrize("args", [[1023], [70000], ["x"], [True], [1, 2]])
 def test_bad_subscribe_ports_are_ignored_and_logged(args):
     lines, clock = [], FakeClock()
     context, _ = osc_context(board(), lines, clock)
@@ -260,11 +260,86 @@ def test_whole_number_float_ports_are_accepted(args):
     assert osc_command("/jack/subscribe", args, PROFILES) == Subscribe(21601)
 
 
-@pytest.mark.parametrize("port", [21601.5, 0.0, 70000.0, float("nan"), True, "21601"])
+@pytest.mark.parametrize("port", [21601.5, 1023.0, 1, 1.0, 70000.0, 65536, float("nan"), float("inf"), True, "21601"])
 def test_other_ports_are_rejected(port):
     with pytest.raises(CommandError) as error:
         osc_command("/jack/subscribe", [port], PROFILES)
     assert error.value.status == 400
+    assert "port must be a whole number 1024-65535" in str(error.value)
+
+
+def test_the_lowest_and_highest_ports_are_accepted():
+    assert osc_command("/jack/subscribe", [1024.0], PROFILES) == Subscribe(1024)
+    assert osc_command("/jack/unsubscribe", [65535], PROFILES) == Unsubscribe(65535)
+
+
+@pytest.mark.parametrize("address", ["/jack/subscribe", "/jack/unsubscribe"])
+@pytest.mark.parametrize("release", [[0], [0.0], [False]])
+def test_subscribe_button_releases_are_ignored_silently(address, release):
+    lines, clock = [], FakeClock()
+    context, sent = osc_context(board(), lines, clock)
+    assert osc_command(address, release, PROFILES) is None
+    handle_osc(address, release, SENDER, context)
+    assert len(context.subscribers) == 0 and lines == [] and sent == []
+
+
+@pytest.mark.parametrize("address, args", [
+    ("/jack/elbow/pose/up", [math.nan]), ("/jack/rest", [math.inf]), ("/jack/hand/rest", [-math.inf]),
+    ("/jack/mouth/mode/show", [math.nan]), ("/jack/mouth/mode", [math.inf]),
+])
+def test_non_finite_button_values_are_400(address, args):
+    with pytest.raises(CommandError) as error:
+        osc_command(address, args, PROFILES)
+    assert error.value.status == 400
+    assert "finite" in str(error.value)
+
+
+def subscribed_context(clock):
+    context, _ = osc_context(board(), [], clock)
+    handle_osc("/jack/subscribe", [21601], SENDER, context)
+    return context
+
+
+def live_subscribers(context):
+    """How many subscribers are still due feedback (expired leases are only dropped when feedback is due)."""
+    return len(context.subscribers.due(state_messages(board().status(True))))
+
+
+def test_a_command_from_a_subscribers_ip_renews_its_lease():
+    clock = FakeClock()
+    context = subscribed_context(clock)
+    clock.advance(50.0)
+    handle_osc("/jack/hand", [0.5], ("10.10.0.22", 4444), context)
+    clock.advance(50.0)
+    assert live_subscribers(context) == 1
+
+
+@pytest.mark.parametrize("address, args", [("/jack/rest", [0]), ("/jack/ping", [])])
+def test_ignored_releases_and_queries_renew_too(address, args):
+    clock = FakeClock()
+    context = subscribed_context(clock)
+    clock.advance(50.0)
+    handle_osc(address, args, SENDER, context)
+    clock.advance(50.0)
+    assert live_subscribers(context) == 1
+
+
+def test_a_rejected_message_does_not_renew():
+    clock = FakeClock()
+    context = subscribed_context(clock)
+    clock.advance(50.0)
+    handle_osc("/jack/hand", ["oops"], SENDER, context)
+    clock.advance(50.0)
+    assert live_subscribers(context) == 0
+
+
+def test_a_command_from_another_ip_does_not_renew():
+    clock = FakeClock()
+    context = subscribed_context(clock)
+    clock.advance(50.0)
+    handle_osc("/jack/hand", [0.5], ("10.10.0.99", 9000), context)
+    clock.advance(50.0)
+    assert live_subscribers(context) == 0
 
 
 @pytest.mark.parametrize("address, command", [

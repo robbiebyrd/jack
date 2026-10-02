@@ -126,3 +126,44 @@ def test_an_expired_subscriber_frees_a_slot_at_the_cap():
     clock.advance(60.0)
     assert subs.subscribe(B)
     assert len(subs) == 1
+
+
+def test_renew_from_extends_only_that_ips_subscriptions():
+    clock = FakeClock()
+    subs = Subscribers(clock)
+    subs.subscribe(A)
+    subs.subscribe(B)
+    clock.advance(50.0)
+    subs.renew_from(A[0])
+    clock.advance(50.0)
+    assert [destination for destination, _ in subs.due(state_messages(status()))] == [A]
+
+
+def test_renew_from_covers_every_port_of_that_ip():
+    clock = FakeClock()
+    subs = Subscribers(clock)
+    other_port = (A[0], 7000)
+    subs.subscribe(A)
+    subs.subscribe(other_port)
+    clock.advance(50.0)
+    subs.renew_from(A[0])
+    clock.advance(50.0)
+    assert len(subs) == 2
+
+
+def test_renew_from_does_not_revive_an_expired_subscription():
+    clock = FakeClock()
+    subs = Subscribers(clock)
+    subs.subscribe(A)
+    clock.advance(60.0)
+    subs.renew_from(A[0])
+    assert len(subs) == 0
+
+
+def test_renew_from_keeps_change_tracking_and_forces_no_full_refresh():
+    subs = Subscribers(FakeClock())
+    subs.subscribe(A)
+    full = state_messages(status())
+    subs.due(full)
+    subs.renew_from(A[0])
+    assert subs.due(full) == []

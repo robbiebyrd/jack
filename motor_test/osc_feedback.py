@@ -62,6 +62,15 @@ class Subscribers:
             self._subscribers[destination] = _Subscriber(expires_at=now + SUBSCRIPTION_S, next_full_at=now)
             return True
 
+    def renew_from(self, ip: str) -> None:
+        """Extend the lease of every live subscription to `ip`, leaving what it was last sent alone."""
+        with self._lock:
+            now = self._clock()
+            self._drop_expired(now)
+            for destination, subscriber in self._subscribers.items():
+                if destination[0] == ip:
+                    subscriber.expires_at = now + SUBSCRIPTION_S
+
     def unsubscribe(self, destination: Destination) -> None:
         with self._lock:
             self._subscribers.pop(destination, None)

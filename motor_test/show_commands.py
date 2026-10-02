@@ -4,7 +4,8 @@ Routes (an OSC address below /jack, or an HTTP path): /<motor> value; /<motor>/p
 /<motor>/rest; /rest; /mouth/mode live|show. See "OSC" and "HTTP" in SPEC.md.
 OSC alone also answers /ping, /status, and takes /subscribe [port], /unsubscribe [port]; see "OSC replies and feedback".
 TouchOSC forms (OSC only; see "TouchOSC support"): ports may be whole-number floats; /rest, /<motor>/rest, /ping, /status
-and /<motor>/pose/<name> are buttons (a press or no argument acts, a release of 0 is ignored); /mouth/mode and
+and /<motor>/pose/<name> are buttons (a press or no argument acts, a release of 0 is ignored, NaN or infinity is a 400);
+/subscribe and /unsubscribe ignore a release of 0 too, and their ports are 1024-65535; /mouth/mode and
 /mouth/mode/show take a number, non-zero for show and 0 for live.
 """
 
@@ -111,7 +112,7 @@ def osc_command(
         if len(parts) == 3:
             return _pose_button(parts[0], parts[2], profiles)
     if route in _QUERY_ROUTES:
-        return _query(route, args)
+        return None if _is_release(route, args) else _query(route, args)
     names = _argument_names(parts)
     # Build first, so an unknown address is a 404 even when it carries arguments.
     command = _build(route, dict(zip(names, args)), profiles)
@@ -146,12 +147,12 @@ def handle_osc(address: str, args: Sequence[object], sender: Destination, contex
     log = context.log
     try:
         command = osc_command(address, args, context.profiles)
-        if command is None:
-            return
         if isinstance(command, OscQuery):
             _answer(command, sender, context)
-        else:
+        elif command is not None:
             apply(command, context.board)
+        # Any message Jack accepts shows the controller is in use, so it stays subscribed.
+        context.subscribers.renew_from(sender[0])
     except CommandError as error:
         # Keyed by status so a flood of varied bad addresses stays one line per kind.
         log(f"ignored {error.status}", f"Ignored OSC {_clip(address)} {_clip(list(args))}: {_clip(error)}")
@@ -190,6 +191,16 @@ def _is_button_value(value: object) -> bool:
     return isinstance(value, int | float)  # bool is an int
 
 
+def _is_release(route: str, args: Sequence[object]) -> bool:
+    """A subscribe or unsubscribe button's release: a single 0."""
+    return route in ("/subscribe", "/unsubscribe") and len(args) == 1 and _is_button_value(args[0]) and args[0] == 0
+
+
+def _check_finite(value: int | float) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise CommandError("button value must be a finite number")
+
+
 def _is_button_route(route: str, parts: list[str]) -> bool:
     """Routes a TouchOSC button can drive: they take no arguments of their own."""
     if route in ("/rest", "/ping", "/status"):
@@ -203,12 +214,15 @@ def _pressed(args: Sequence[object]) -> bool:
         raise CommandError("too many arguments for a button")
     if args and not _is_button_value(args[0]):
         raise CommandError(f"a button sends a number, got {_clip(args[0])}")
+    if args:
+        _check_finite(args[0])
     return not args or bool(args[0])
 
 
 def _mouth_mode_toggle(route: str, args: Sequence[object]) -> SetMouthMode:
     if len(args) != 1 or not _is_button_value(args[0]):
         raise CommandError(f"{OSC_PREFIX}{route} takes one number")
+    _check_finite(args[0])
     return SetMouthMode("show" if args[0] else "live")
 
 
@@ -236,10 +250,13 @@ def _query(route: str, args: Sequence[object]) -> OscQuery:
 
 
 def _port(value: object) -> int:
-    """A UDP port; TouchOSC sends whole numbers as floats."""
+    """A UDP port a controller can listen on; TouchOSC sends whole numbers as floats.
+
+    Below 1024 is refused so a button left at its default press value of 1 can't subscribe port 1.
+    """
     whole = isinstance(value, int) or (isinstance(value, float) and value.is_integer())
-    if isinstance(value, bool) or not whole or not 1 <= value <= 65535:
-        raise CommandError(f"port must be an integer 1-65535, got {_clip(value)}")
+    if isinstance(value, bool) or not whole or not 1024 <= value <= 65535:
+        raise CommandError(f"port must be a whole number 1024-65535, got {_clip(value)}")
     return int(value)
 
 

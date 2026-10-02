@@ -115,9 +115,11 @@ the motor (`JACK_CONTROL_TIMEOUT_S`).
 |---|---|---|
 | `/jack/<motor>` | float | Continuous value (0…1; pivot −1…1) |
 | `/jack/<motor>/pose` | string, optional float | Named pose, optional duration (s) |
-| `/jack/<motor>/rest` | none | That motor to rest |
-| `/jack/rest` | none | All motors to rest |
-| `/jack/mouth/mode` | `live` or `show` | Switch the mouth's source |
+| `/jack/<motor>/pose/<name>` | none, or a button value | That pose for its default duration |
+| `/jack/<motor>/rest` | none, or a button value | That motor to rest |
+| `/jack/rest` | none, or a button value | All motors to rest |
+| `/jack/mouth/mode` | `live` or `show`, or 1/0 | Switch the mouth's source |
+| `/jack/mouth/mode/show` | 1 or 0 | `show` for non-zero, `live` for 0 |
 
 Out-of-range values are clamped. Unknown motors, poses or addresses are ignored, and logged at
 most once a minute per kind (`journalctl -u jack`).
@@ -141,7 +143,7 @@ different port than it sends from); a port argument to `/jack/subscribe` overrid
 either, the controller machine must allow inbound UDP on that port.
 
 Port arguments are OSC ints, or whole-number floats (`21601.0` means 21601), which is what
-TouchOSC sends. A fractional or out-of-range port is rejected with a logged "Ignored OSC … " and no
+TouchOSC sends. A fractional port, or one outside 1024-65535, is rejected with a logged "Ignored OSC … " and no
 feedback. `/jack/unsubscribe` must carry the same port argument as the `/jack/subscribe` it
 undoes (or none, if none was used), otherwise it silently does nothing. OSC is UDP only, no TCP.
 
@@ -189,12 +191,16 @@ version, so check it against your layout.
 - **Connection:** host `10.10.0.54`, send port `9000`, receive port your choice (for example
   `21601`).
 - **Subscribe button:** send `/jack/subscribe` with your receive port as its value (int or whole
-  float), pressed at least every 60 s to keep the subscription alive. Or set
-  `JACK_OSC_REPLY_PORT` (see above) and send no value. A press arrives as a number, so the
-  value, not the button, carries the port.
+  float, at least 1024) as its on-value; its release is ignored. Once subscribed, any command you
+  send keeps the subscription alive, so a layout in use stays subscribed; otherwise press it again
+  within 60 s. Or set `JACK_OSC_REPLY_PORT` (see above) and send no value. A press arrives as a
+  number, so the value, not the button, carries the port.
 - **Faders:** `/jack/hand`, `/jack/elbow` and `/jack/mouth` use 0 to 1. `/jack/pivot` uses -1 to
-  1, so set that fader's range to -1...1. A held fader keeps resending, which is what holds the
-  value; releasing it lets the motor rest after 0.5 s. `/jack/mouth` only works in `show` mode.
+  1, so set that fader's range to -1...1. Whether a held fader keeps resending while
+  still is unverified. If it doesn't, a fader held still longer than the 0.5 s dead-man rests the
+  motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's
+  max hold still caps any hold). Whether TouchOSC re-sends values it receives is also unverified.
+  Releasing a fader lets the motor rest after 0.5 s. `/jack/mouth` only works in `show` mode.
 - **Buttons:** `/jack/rest`, `/jack/<motor>/rest` and `/jack/<motor>/pose/<name>` (for example
   `/jack/elbow/pose/up`) act on press (a non-zero number) and ignore release (0). The pose plays
   for its default duration; an unknown pose is logged and ignored. The same press/release rule

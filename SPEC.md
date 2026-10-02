@@ -480,8 +480,10 @@ Jack answers and reports state over OSC, as well as taking commands.
 
 TouchOSC buttons send a number (typically 1 on press, 0 on release). Faders send 0–1 floats, and controls update themselves when a message arrives on their own address. Jack accommodates this without scripting in the layout. This is based on general knowledge of TouchOSC, to be confirmed with Boss's layout.
 
-1. **Float ports:** `/jack/subscribe` and `/jack/unsubscribe` accept a whole-number float port (`21601.0` means 21601). A fractional value or one outside 1–65535 is still a 400.
-2. **Buttons on argument-less commands:** `/jack/rest`, `/jack/<motor>/rest`, `/jack/ping` and `/jack/status` also accept one numeric argument. A non-zero value (press) acts, 0 (release) is ignored silently, and no argument acts as today. A string or a second argument is still a 400.
+1. **Float ports:** `/jack/subscribe` and `/jack/unsubscribe` accept a whole-number float port (`21601.0` means 21601). A fractional value, a bool, NaN or infinity, or one outside **1024**–65535 is a 400 ("port must be a whole number 1024-65535"). The floor stops a button left at its default press value of 1 from subscribing port 1. `JACK_OSC_REPLY_PORT` parsing is unchanged.
+   - **Subscribe buttons:** `/jack/subscribe` and `/jack/unsubscribe` follow the button rule for a release: a single argument equal to 0 is ignored silently (no log, no reply).
+   - **Commands renew subscriptions:** any OSC message Jack accepts (a command, an ignored release or a query; not a rejected one) extends the lease of every live subscription to the sender's IP by 60 s, without a full refresh. A layout in use therefore stays subscribed; an explicit `/jack/subscribe` still sends the full set.
+2. **Buttons on argument-less commands:** `/jack/rest`, `/jack/<motor>/rest`, `/jack/ping` and `/jack/status` also accept one numeric argument. A non-zero value (press) acts, 0 (release) is ignored silently, and no argument acts as today. A string or a second argument is still a 400, and so is NaN or infinity ("button value must be a finite number"). The same applies to the numeric mouth mode in item 5.
 3. **One address per pose:** `/jack/<motor>/pose/<name>` plays that pose for its default duration, for example `/jack/elbow/pose/up` or `/jack/pivot/pose/left`. It follows the same button rule as item 2. An unknown pose is a 404. `/jack/<motor>/pose <name> [seconds]` is unchanged. The per-pose address is OSC-only; HTTP keeps `POST /<motor>/pose`.
 4. **Fader feedback:** subscribers and the status reply also get `/jack/<motor>` (float). It carries the motor's current value command (0–1, or −1–1 for the pivot), or 0.0 when the motor rests or is playing a pose. A fader on `/jack/<motor>` therefore follows what Jack is doing, for example dropping to 0 when the dead-man rule rests the motor.
 5. **Mouth mode toggle:**
@@ -489,6 +491,8 @@ TouchOSC buttons send a number (typically 1 on press, 0 on release). Faders send
    - `/jack/mouth/mode/show` takes the same number as input.
    - Feedback includes `/jack/mouth/mode/show` (float 1.0 in show, 0.0 in live), so one toggle on that address both switches the mode and lights up correctly. Use a **toggle** button there: a momentary button's release (0) would switch back to live.
    - The string forms (`live`/`show`) are unchanged.
+
+Unverified: whether a held TouchOSC fader resends while still. If it doesn't, a fader held still for longer than the 0.5 s dead-man rests the motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's `max_hold_s` still caps any hold). Also unverified: whether TouchOSC re-sends values it receives.
 
 Feedback order: each motor's `/jack/<motor>`, `volts` and `max_hold`, then `/jack/mouth/mode` (string), `/jack/mouth/mode/show` (float), then `/jack/mumble`. Feedback values meant for TouchOSC controls are floats.
 
