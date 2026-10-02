@@ -170,6 +170,21 @@ def test_show_control_defaults():
     assert main.show_control_config({}) == main.ShowControlConfig(osc_port=9000, http_port=8080, timeout_s=0.5, mouth_mode="live")
 
 
+def test_reply_port_defaults_to_the_senders_port():
+    assert main.show_control_config({}).reply_port is None
+
+
+def test_reply_port_comes_from_the_environment():
+    assert main.show_control_config({"JACK_OSC_REPLY_PORT": "21601"}).reply_port == 21601
+
+
+@pytest.mark.parametrize("value", ["x", "0", "70000", "²"])
+def test_bad_reply_port_exits_naming_the_variable(value):
+    with pytest.raises(SystemExit) as exit_info:
+        main.show_control_config({"JACK_OSC_REPLY_PORT": value})
+    assert "JACK_OSC_REPLY_PORT" in str(exit_info.value.code)
+
+
 def test_show_control_from_the_environment():
     config = main.show_control_config(
         {"JACK_OSC_PORT": "9100", "JACK_HTTP_PORT": "8181", "JACK_CONTROL_TIMEOUT_S": "1.5", "JACK_MOUTH_MODE": "show"}

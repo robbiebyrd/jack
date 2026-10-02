@@ -73,9 +73,3 @@ def start_feedback(
     threading.Thread(target=run, name="osc-feedback", daemon=True).start()
     return stop
 
-
-def start_osc_server(host: str, port: int, handle: Callable[[str, list], None]) -> OscEndpoint:
-    """Serve OSC on a daemon thread, passing every message's address and arguments to `handle`."""
-    endpoint = OscEndpoint(host, port)
-    endpoint.serve(lambda address, args, sender: handle(address, args))
-    return endpoint

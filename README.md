@@ -122,6 +122,54 @@ the motor (`JACK_CONTROL_TIMEOUT_S`).
 Out-of-range values are clamped. Unknown motors, poses or addresses are ignored, and logged at
 most once a minute per kind (`journalctl -u jack`).
 
+### OSC replies and feedback
+
+Jack answers on the same UDP socket it listens on, so replies pass through NAT and firewalls that
+let the command through.
+
+| Address | Arguments | Effect |
+|---|---|---|
+| `/jack/ping` | none | Replies `/jack/pong` |
+| `/jack/status` | none | Replies with every state message below, once |
+| `/jack/subscribe` | optional int port | Sends state messages to the sender (or that port) for 60 s |
+| `/jack/unsubscribe` | optional int port | Stops them |
+
+Replies and feedback go to the sender's IP and source port. Set `JACK_OSC_REPLY_PORT` in
+`/etc/jack/jack.env` to send them to a fixed port instead (for a controller that listens on a
+different port than it sends from); a port argument to `/jack/subscribe` overrides both.
+
+A subscription lasts 60 s: renew it by sending `/jack/subscribe` again at least every 60 s, or it
+lapses. At most 8 subscribers are served. A subscriber gets every state message on subscribing and
+renewing and once a second after that, and in between only the ones that changed.
+
+| State message | Value |
+|---|---|
+| `/jack/<motor>/volts` | float, volts now applied to the motor |
+| `/jack/<motor>/max_hold` | int 0 or 1, whether the max hold tripped |
+| `/jack/mouth/mode` | string, `live` or `show` |
+| `/jack/mumble` | int 0 or 1, whether Mumble is connected |
+
+Subscribe from a script and print what arrives (`pip install python-osc`; here the script listens
+on UDP 9001):
+
+```python
+import threading
+import time
+from pythonosc.dispatcher import Dispatcher
+from pythonosc.osc_server import ThreadingOSCUDPServer
+from pythonosc.udp_client import SimpleUDPClient
+
+dispatcher = Dispatcher()
+dispatcher.set_default_handler(lambda address, *args: print(address, args))
+server = ThreadingOSCUDPServer(("0.0.0.0", 9001), dispatcher)
+client = SimpleUDPClient("10.10.0.54", 9000)
+
+threading.Thread(target=server.serve_forever, daemon=True).start()
+while True:
+    client.send_message("/jack/subscribe", 9001)  # renew well inside 60 s
+    time.sleep(30)
+```
+
 ### HTTP
 
 JSON in and out. A bad request gets a one-line JSON error: `400` bad input, `404` unknown motor,
@@ -161,6 +209,7 @@ any mouth command is dropped.
 | Variable | Default | Meaning |
 |---|---|---|
 | `JACK_OSC_PORT` | `9000` | OSC UDP port |
+| `JACK_OSC_REPLY_PORT` | sender's port | UDP port OSC replies and feedback go to |
 | `JACK_HTTP_PORT` | `8080` | HTTP TCP port |
 | `JACK_CONTROL_TIMEOUT_S` | `0.5` | Seconds without a new value before a motor rests |
 | `JACK_MOUTH_MODE` | `live` | Mouth mode at startup: `live` or `show` |

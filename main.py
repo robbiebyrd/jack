@@ -21,12 +21,13 @@ from motor_test.http_server import start_http_server
 from motor_test.motors import MOTORS
 from motor_test.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
 from motor_test.mumble_voice import MumbleVoice, connect_mumble
-from motor_test.osc_server import start_osc_server
+from motor_test.osc_feedback import Subscribers
+from motor_test.osc_server import OscEndpoint, start_feedback
 from motor_test.pca9685 import Pca9685
 from motor_test.poses import MotorProfile, load_profiles
 from motor_test.ramp import constant_profile, segment_profile
 from motor_test.rate_limited_log import RateLimitedLog
-from motor_test.show_commands import handle_osc
+from motor_test.show_commands import OscContext, handle_osc
 from motor_test.speech import random_phrase
 from motor_test.systemd_notify import notify
 from motor_test.talk_loop import run_talk_loop
@@ -166,6 +167,7 @@ class ShowControlConfig:
     http_port: int
     timeout_s: float
     mouth_mode: str
+    reply_port: int | None = None
 
 
 def show_control_config(environ: Mapping[str, str] = os.environ) -> ShowControlConfig:
@@ -181,6 +183,7 @@ def show_control_config(environ: Mapping[str, str] = os.environ) -> ShowControlC
         http_port=_env_port(environ, "JACK_HTTP_PORT", DEFAULT_HTTP_PORT),
         timeout_s=timeout,
         mouth_mode=mode,
+        reply_port=_env_port(environ, "JACK_OSC_REPLY_PORT", None),
     )
 
 
@@ -197,7 +200,7 @@ def _env_number(environ: Mapping[str, str], var: str, default: float | None) -> 
     return number
 
 
-def _env_port(environ: Mapping[str, str], var: str, default: int) -> int:
+def _env_port(environ: Mapping[str, str], var: str, default: int | None) -> int | None:
     value = environ.get(var, "")
     if not value:
         return default
@@ -241,13 +244,22 @@ def main() -> None:
     with SMBus(I2C_BUS) as bus:
         motors = build_motors(bus)
         sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
+        endpoint = OscEndpoint("0.0.0.0", config.osc_port)
+        subscribers = Subscribers(time.monotonic)
         osc_log = RateLimitedLog(print, OSC_LOG_INTERVAL_S, time.monotonic)
-        start_osc_server("0.0.0.0", config.osc_port, lambda address, args: handle_osc(address, args, profiles, board, osc_log))
+        context = OscContext(
+            profiles=profiles, board=board, subscribers=subscribers, send=endpoint.send,
+            mumble_connected=lambda: voice.connected, reply_port=config.reply_port, log=osc_log,
+        )
+        endpoint.serve(lambda address, args, sender: handle_osc(address, args, sender, context))
+        start_feedback(endpoint, subscribers, lambda: board.status(voice.connected), osc_log)
         start_http_server("0.0.0.0", config.http_port, board, profiles, lambda: voice.connected)
+        reply_target = config.reply_port or "sender's port"
         uncalibrated = [name for name, profile in profiles.items() if not profile.calibrated]
         print(
             f"Talking: Mumble voice on {ALSA_DEVICE}; motors {', '.join(motors)} on {SUPPLY_VOLTS} V; "
-            f"mouth {config.mouth_mode}; OSC UDP {config.osc_port}, HTTP {config.http_port}"
+            f"mouth {config.mouth_mode}; OSC UDP {config.osc_port}, HTTP {config.http_port}; "
+            f"OSC replies to {reply_target}"
             + (f"; uncalibrated: {', '.join(uncalibrated)}" if uncalibrated else "")
         )
         notify("READY=1")
