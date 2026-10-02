@@ -130,15 +130,9 @@ def talk_settings(environ: Mapping[str, str] = os.environ) -> TalkSettings:
     overrides: dict[str, float] = {}
     for field in dataclasses.fields(TalkSettings):
         var = SETTING_ENV_PREFIX + field.name.upper()
-        value = environ.get(var, "")
-        if not value:
+        number = _env_number(environ, var, None)
+        if number is None:
             continue
-        try:
-            number = float(value)
-        except ValueError:
-            number = math.nan
-        if not math.isfinite(number):
-            raise SystemExit(f"{var}={value!r} in /etc/jack/jack.env is not a number")
         overrides[field.name] = number
     try:
         settings = TalkSettings(**overrides)
@@ -189,7 +183,7 @@ def show_control_config(environ: Mapping[str, str] = os.environ) -> ShowControlC
     )
 
 
-def _env_number(environ: Mapping[str, str], var: str, default: float) -> float:
+def _env_number(environ: Mapping[str, str], var: str, default: float | None) -> float | None:
     value = environ.get(var, "")
     if not value:
         return default
@@ -206,7 +200,7 @@ def _env_port(environ: Mapping[str, str], var: str, default: int) -> int:
     value = environ.get(var, "")
     if not value:
         return default
-    if not value.isdigit() or not 1 <= int(value) <= 65535:
+    if not (value.isascii() and value.isdigit()) or not 1 <= int(value) <= 65535:
         raise SystemExit(f"{var}={value!r} in /etc/jack/jack.env must be a port number 1-65535")
     return int(value)
 

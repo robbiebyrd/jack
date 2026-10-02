@@ -207,3 +207,9 @@ def test_a_missing_hat_exits_naming_its_address():
     with pytest.raises(SystemExit) as exit_info:
         main.build_motors(MissingHatBus())
     assert "0x41" in str(exit_info.value.code)
+
+
+def test_a_non_ascii_digit_port_exits_naming_the_variable():
+    with pytest.raises(SystemExit) as exit_info:
+        main.show_control_config({"JACK_OSC_PORT": "²"})
+    assert "JACK_OSC_PORT" in str(exit_info.value.code)
