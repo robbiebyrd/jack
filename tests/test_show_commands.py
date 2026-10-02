@@ -7,8 +7,8 @@ from motor_test.control_board import ControlBoard
 from motor_test.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
 from motor_test.rate_limited_log import RateLimitedLog
 from motor_test.show_commands import (
-    CommandError, OscContext, RestCommand, SetMouthMode, SetValue, StartPose, apply, handle_osc, http_command,
-    osc_command,
+    CommandError, OscContext, Ping, RestCommand, SetMouthMode, SetValue, StartPose, StatusRequest, Subscribe, apply,
+    handle_osc, http_command, osc_command,
 )
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
@@ -60,7 +60,7 @@ def test_values_are_clamped_to_the_motors_range():
         ("/jack/hand/pose", [], 400),
         ("/jack/hand/pose", ["curl", 0], 400),
         ("/jack/mouth/mode", ["auto"], 400),
-        ("/jack/rest", [1], 400),
+        ("/jack/rest", [1, 1], 400),
     ],
 )
 def test_bad_osc_is_rejected_with_a_status(address, args, status):
@@ -215,7 +215,7 @@ def test_bad_subscribe_ports_are_ignored_and_logged(args):
 @pytest.mark.parametrize("address", ["/jack/ping", "/jack/status"])
 def test_extra_arguments_to_ping_and_status_are_rejected(address):
     with pytest.raises(CommandError) as error:
-        osc_command(address, [1], PROFILES)
+        osc_command(address, [1, 1], PROFILES)
     assert error.value.status == 400
 
 
@@ -253,3 +253,77 @@ def test_integer_too_large_for_a_float_is_a_400():
     with pytest.raises(CommandError) as error:
         http_command("/hand", {"value": 10**400}, PROFILES)
     assert error.value.status == 400
+
+
+@pytest.mark.parametrize("args", [[21601.0], [21601]])
+def test_whole_number_float_ports_are_accepted(args):
+    assert osc_command("/jack/subscribe", args, PROFILES) == Subscribe(21601)
+
+
+@pytest.mark.parametrize("port", [21601.5, 0.0, 70000.0, float("nan"), True, "21601"])
+def test_other_ports_are_rejected(port):
+    with pytest.raises(CommandError) as error:
+        osc_command("/jack/subscribe", [port], PROFILES)
+    assert error.value.status == 400
+
+
+@pytest.mark.parametrize("address, command", [
+    ("/jack/rest", RestCommand(None)),
+    ("/jack/hand/rest", RestCommand("hand")),
+    ("/jack/ping", Ping()),
+    ("/jack/status", StatusRequest()),
+    ("/jack/elbow/pose/up", StartPose("elbow", "up", None)),
+])
+@pytest.mark.parametrize("press", [[], [1], [1.0], [True]])
+def test_button_presses_act(address, command, press):
+    assert osc_command(address, press, PROFILES) == command
+
+
+@pytest.mark.parametrize("address", ["/jack/rest", "/jack/hand/rest", "/jack/ping", "/jack/status", "/jack/elbow/pose/up"])
+@pytest.mark.parametrize("release", [[0], [0.0], [False]])
+def test_button_releases_are_ignored(address, release):
+    assert osc_command(address, release, PROFILES) is None
+
+
+@pytest.mark.parametrize("address, args", [("/jack/rest", ["go"]), ("/jack/rest", [1, 1]), ("/jack/elbow/pose/up", ["x"])])
+def test_bad_button_arguments_are_400(address, args):
+    with pytest.raises(CommandError) as error:
+        osc_command(address, args, PROFILES)
+    assert error.value.status == 400
+
+
+def test_unknown_pose_address_is_404():
+    with pytest.raises(CommandError) as error:
+        osc_command("/jack/elbow/pose/wave", [1.0], PROFILES)
+    assert error.value.status == 404
+
+
+@pytest.mark.parametrize("address", ["/jack/mouth/mode", "/jack/mouth/mode/show"])
+@pytest.mark.parametrize("value, mode", [(1, "show"), (1.0, "show"), (True, "show"), (0, "live"), (0.0, "live"), (False, "live")])
+def test_numeric_mouth_mode(address, value, mode):
+    assert osc_command(address, [value], PROFILES) == SetMouthMode(mode)
+
+
+def test_string_mouth_mode_still_works_and_show_address_needs_a_number():
+    assert osc_command("/jack/mouth/mode", ["show"], PROFILES) == SetMouthMode("show")
+    with pytest.raises(CommandError):
+        osc_command("/jack/mouth/mode/show", ["show"], PROFILES)
+
+
+def test_per_pose_address_is_osc_only():
+    with pytest.raises(CommandError) as error:
+        http_command("/elbow/pose/up", {}, PROFILES)
+    assert error.value.status == 404
+
+
+def test_a_momentary_rest_button_rests_once_and_logs_nothing():
+    lines, clock = [], FakeClock()
+    b = board()
+    b.set_value("hand", 1.0)
+    context, sent = osc_context(b, lines, clock)
+    handle_osc("/jack/rest", [1.0], SENDER, context)
+    assert b.target_volts("hand") is None
+    b.set_value("hand", 1.0)
+    handle_osc("/jack/rest", [0.0], SENDER, context)
+    assert b.target_volts("hand") == 2.0
+    assert lines == [] and sent == []
