@@ -60,3 +60,12 @@ def test_connection_changes_are_logged():
     source.on_connected()
     source.on_disconnected()
     assert log == ["Connected to Mumble", "Disconnected from Mumble; pymumble retries every 10 s"]
+
+
+def test_connected_follows_the_connection_callbacks():
+    source, _ = voice()
+    assert source.connected is False
+    source.on_connected()
+    assert source.connected is True
+    source.on_disconnected()
+    assert source.connected is False

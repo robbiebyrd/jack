@@ -17,6 +17,7 @@ class MumbleVoice:
         self._log = log
         self._queues: dict[int, FrameQueue] = {}
         self._lock = threading.Lock()
+        self.connected = False
 
     def on_sound(self, user, chunk) -> None:
         """pymumble's sound-received callback; runs on pymumble's thread."""
@@ -27,9 +28,11 @@ class MumbleVoice:
             self._log(f"Dropped {round(dropped * TICK_S * 1000)} ms of {user['name']}'s voice to keep up")
 
     def on_connected(self) -> None:
+        self.connected = True
         self._log("Connected to Mumble")
 
     def on_disconnected(self) -> None:
+        self.connected = False
         self._log("Disconnected from Mumble; pymumble retries every 10 s")
 
     def take_frames(self) -> list[bytes]:

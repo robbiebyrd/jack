@@ -1,4 +1,4 @@
-"""Jack talks: Boss's voice from Mumble plays on the 3.5 mm jack and the mouth (motor B) moves with it; motor A stays off."""
+"""Jack talks and takes show control: Boss's voice from Mumble plays on the 3.5 mm jack; the mouth follows it (live) or show commands (show); hand, pivot and elbow follow OSC/HTTP show commands."""
 
 import dataclasses
 import math
@@ -7,6 +7,7 @@ import random
 import signal
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
 from typing import NoReturn
@@ -14,20 +15,24 @@ from typing import NoReturn
 from smbus2 import SMBus
 
 from motor_test.alsa_sink import open_alsa_sink
-from motor_test.control_board import ControlBoard
+from motor_test.control_board import MOUTH_MODES, ControlBoard
+from motor_test.http_server import start_http_server
+from motor_test.motors import MOTORS
 from motor_test.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
 from motor_test.mumble_voice import MumbleVoice, connect_mumble
+from motor_test.osc_server import start_osc_server
 from motor_test.pca9685 import Pca9685
 from motor_test.poses import MotorProfile, load_profiles
 from motor_test.ramp import constant_profile, segment_profile
+from motor_test.rate_limited_log import RateLimitedLog
+from motor_test.show_commands import handle_osc
 from motor_test.speech import random_phrase
 from motor_test.systemd_notify import notify
 from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
-from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, Tb6612Motor
+from motor_test.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
 
 I2C_BUS = 1
-PCA9685_ADDRESS = 0x40
 PWM_FREQ_HZ = 50
 
 SUPPLY_VOLTS = 12.0
@@ -51,6 +56,12 @@ MOVED_TO_POSES = {
     "close_v": "rest_pulse_v",
     "close_s": "rest_pulse_s",
 }
+# Show control (SPEC.md "Show control"); every value can be set in /etc/jack/jack.env.
+DEFAULT_OSC_PORT = 9000
+DEFAULT_HTTP_PORT = 8080
+DEFAULT_CONTROL_TIMEOUT_S = 0.5
+# One log line per kind of bad OSC message per minute.
+OSC_LOG_INTERVAL_S = 60.0
 # Fixed pose tour: an alternative to speaking, e.g. for checking the mechanism.
 MOUTH_DEMO = (*CLOSE, *rest(1.5), *RELAX, *rest(1.5), *open_fully(0.5))
 
@@ -154,29 +165,91 @@ def describe_overrides(settings: TalkSettings) -> str:
     )
 
 
+@dataclass(frozen=True)
+class ShowControlConfig:
+    osc_port: int
+    http_port: int
+    timeout_s: float
+    mouth_mode: str
+
+
+def show_control_config(environ: Mapping[str, str] = os.environ) -> ShowControlConfig:
+    """Ports, dead-man timeout and startup mouth mode, from jack.env or their defaults."""
+    mode = environ.get("JACK_MOUTH_MODE") or "live"
+    if mode not in MOUTH_MODES:
+        raise SystemExit(f"JACK_MOUTH_MODE={mode!r} in /etc/jack/jack.env must be one of {', '.join(MOUTH_MODES)}")
+    timeout = _env_number(environ, "JACK_CONTROL_TIMEOUT_S", DEFAULT_CONTROL_TIMEOUT_S)
+    if timeout <= 0:
+        raise SystemExit(f"JACK_CONTROL_TIMEOUT_S={timeout!r} in /etc/jack/jack.env must be positive")
+    return ShowControlConfig(
+        osc_port=_env_port(environ, "JACK_OSC_PORT", DEFAULT_OSC_PORT),
+        http_port=_env_port(environ, "JACK_HTTP_PORT", DEFAULT_HTTP_PORT),
+        timeout_s=timeout,
+        mouth_mode=mode,
+    )
+
+
+def _env_number(environ: Mapping[str, str], var: str, default: float) -> float:
+    value = environ.get(var, "")
+    if not value:
+        return default
+    try:
+        number = float(value)
+    except ValueError:
+        number = math.nan
+    if not math.isfinite(number):
+        raise SystemExit(f"{var}={value!r} in /etc/jack/jack.env is not a number")
+    return number
+
+
+def _env_port(environ: Mapping[str, str], var: str, default: int) -> int:
+    value = environ.get(var, "")
+    if not value:
+        return default
+    if not value.isdigit() or not 1 <= int(value) <= 65535:
+        raise SystemExit(f"{var}={value!r} in /etc/jack/jack.env must be a port number 1-65535")
+    return int(value)
+
+
+def build_motors(bus) -> dict[str, Tb6612Motor]:
+    """Every motor on its HAT and channel; a HAT that doesn't answer stops the app naming its address."""
+    chips: dict[int, Pca9685] = {}
+    for spec in MOTORS:
+        if spec.address not in chips:
+            try:
+                chips[spec.address] = Pca9685(bus, spec.address, PWM_FREQ_HZ)
+            except OSError as error:
+                raise SystemExit(
+                    f"Motor HAT at {spec.address:#04x} is not responding ({error}); check it is seated and its address pads"
+                ) from error
+    return {spec.name: Tb6612Motor(chips[spec.address], MOTOR_CHANNELS[spec.channel]) for spec in MOTORS}
+
+
 def main() -> None:
     signal.signal(signal.SIGTERM, exit_on_sigterm)
     settings = talk_settings()
     profiles = motor_profiles()
+    config = show_control_config()
     if overrides := describe_overrides(settings):
         print(f"Mouth setting overrides: {overrides}")
+    board = ControlBoard(profiles, config.timeout_s, config.mouth_mode, time.monotonic)
     voice = MumbleVoice(settings.max_backlog_frames, print)
     mumble_client = connect_mumble(voice, MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, mumble_password())
     with SMBus(I2C_BUS) as bus:
-        chip = Pca9685(bus, PCA9685_ADDRESS, PWM_FREQ_HZ)
+        motors = build_motors(bus)
         sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
-        print(f"Talking: Mumble voice on {ALSA_DEVICE}, mouth on motor B, {SUPPLY_VOLTS} V supply, motor A off")
+        osc_log = RateLimitedLog(print, OSC_LOG_INTERVAL_S, time.monotonic)
+        start_osc_server("0.0.0.0", config.osc_port, lambda address, args: handle_osc(address, args, profiles, board, osc_log))
+        start_http_server("0.0.0.0", config.http_port, board, profiles, lambda: voice.connected)
+        uncalibrated = [name for name, profile in profiles.items() if not profile.calibrated]
+        print(
+            f"Talking: Mumble voice on {ALSA_DEVICE}; motors {', '.join(motors)} on {SUPPLY_VOLTS} V; "
+            f"mouth {config.mouth_mode}; OSC UDP {config.osc_port}, HTTP {config.http_port}"
+            + (f"; uncalibrated: {', '.join(uncalibrated)}" if uncalibrated else "")
+        )
         notify("READY=1")
-        motors = {"mouth": Tb6612Motor(chip, MOTOR_B), "hand": Tb6612Motor(chip, MOTOR_A)}
         run_talk_loop(
-            [voice],
-            sink,
-            motors,
-            profiles,
-            settings,
-            ControlBoard(profiles, 0.5, "live", time.monotonic),
-            SUPPLY_VOLTS,
-            watchdog_while_connected(mumble_client),
+            [voice], sink, motors, profiles, settings, board, SUPPLY_VOLTS, watchdog_while_connected(mumble_client)
         )
 
 

@@ -9,6 +9,7 @@ from motor_test.mouth import STEP_S
 from motor_test.ramp import segment_profile
 from motor_test.speech import MAX_PHRASE_S, random_phrase
 from motor_test.talk_settings import TalkSettings
+from tests.fakes import RecordingBus
 
 
 def test_sigterm_handler_raises_system_exit_so_cleanup_runs():
@@ -163,3 +164,46 @@ def test_invalid_poses_file_exits_with_one_line(tmp_path):
     with pytest.raises(SystemExit) as exit_info:
         main.motor_profiles((main.POSES_PATHS[0], bad))
     assert "99" in str(exit_info.value.code)
+
+
+def test_show_control_defaults():
+    assert main.show_control_config({}) == main.ShowControlConfig(osc_port=9000, http_port=8080, timeout_s=0.5, mouth_mode="live")
+
+
+def test_show_control_from_the_environment():
+    config = main.show_control_config(
+        {"JACK_OSC_PORT": "9100", "JACK_HTTP_PORT": "8181", "JACK_CONTROL_TIMEOUT_S": "1.5", "JACK_MOUTH_MODE": "show"}
+    )
+    assert config == main.ShowControlConfig(osc_port=9100, http_port=8181, timeout_s=1.5, mouth_mode="show")
+
+
+@pytest.mark.parametrize(
+    "var, value",
+    [("JACK_OSC_PORT", "x"), ("JACK_OSC_PORT", "70000"), ("JACK_HTTP_PORT", "0"), ("JACK_CONTROL_TIMEOUT_S", "nan"),
+     ("JACK_CONTROL_TIMEOUT_S", "-1"), ("JACK_MOUTH_MODE", "auto")],
+)
+def test_bad_show_control_settings_exit_naming_the_variable(var, value):
+    with pytest.raises(SystemExit) as exit_info:
+        main.show_control_config({var: value})
+    assert var in str(exit_info.value.code)
+
+
+def test_build_motors_puts_each_motor_on_its_hat_and_channel():
+    bus = RecordingBus()
+    motors = main.build_motors(bus)
+    assert set(motors) == {"mouth", "hand", "pivot", "elbow"}
+    motors["elbow"].drive(100)
+    assert (0x41, 0x06 + 4 * 5 + 2, 100) in bus.writes  # HAT 2, channel B's PWM (channel 5) OFF_L
+
+
+class MissingHatBus(RecordingBus):
+    def write_byte_data(self, i2c_addr, register, value):
+        if i2c_addr == 0x41:
+            raise OSError("[Errno 121] Remote I/O error")
+        super().write_byte_data(i2c_addr, register, value)
+
+
+def test_a_missing_hat_exits_naming_its_address():
+    with pytest.raises(SystemExit) as exit_info:
+        main.build_motors(MissingHatBus())
+    assert "0x41" in str(exit_info.value.code)

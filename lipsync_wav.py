@@ -15,16 +15,14 @@ from collections.abc import Callable
 
 from smbus2 import SMBus
 
-from main import ALSA_DEVICE, ALSA_PERIODS, I2C_BUS, PCA9685_ADDRESS, POSES_PATHS, PWM_FREQ_HZ, SUPPLY_VOLTS
+from main import ALSA_DEVICE, ALSA_PERIODS, DEFAULT_CONTROL_TIMEOUT_S, I2C_BUS, POSES_PATHS, SUPPLY_VOLTS, build_motors
 from motor_test.alsa_sink import open_alsa_sink
 from motor_test.control_board import ControlBoard
-from motor_test.pca9685 import Pca9685
 from motor_test.pcm import TICKS_PER_SECOND
 from motor_test.poses import load_profiles
 from motor_test.service_guard import STOP_APP_FIRST, app_is_running
 from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
-from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, Tb6612Motor
 from motor_test.wav_source import WavSource
 
 # Keep running this long after the WAV ends so the mouth closes before the motors brake.
@@ -74,9 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(f"Playing {args.wav} on {ALSA_DEVICE} with {settings}")
     with SMBus(I2C_BUS) as bus:
-        chip = Pca9685(bus, PCA9685_ADDRESS, PWM_FREQ_HZ)
         sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
-        motors = {"mouth": Tb6612Motor(chip, MOTOR_B), "hand": Tb6612Motor(chip, MOTOR_A)}
+        motors = build_motors(bus)
         try:
             run_talk_loop(
                 [source],
@@ -84,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
                 motors,
                 profiles,
                 settings,
-                ControlBoard(profiles, 0.5, "live", time.monotonic),
+                ControlBoard(profiles, DEFAULT_CONTROL_TIMEOUT_S, "live", time.monotonic),
                 SUPPLY_VOLTS,
                 lambda: None,
                 after_tail(source, TAIL_TICKS),
