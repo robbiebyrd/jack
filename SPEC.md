@@ -476,6 +476,22 @@ Jack answers and reports state over OSC, as well as taking commands.
   - The ping, status, subscribe and unsubscribe routes are parsed in `show_commands.py` like every other command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
 - **Not provided:** OSC over TCP, authentication, protection against a LAN host subscribing on another host's behalf or filling the 8 slots (follows from no authentication; bounded by the cap and the 60 s lease), and feedback over HTTP (HTTP has `/status`).
 
+### TouchOSC support (Boss uses TouchOSC; designed 2026-10-02)
+
+TouchOSC buttons send a number (typically 1 on press, 0 on release). Faders send 0–1 floats, and controls update themselves when a message arrives on their own address. Jack accommodates this without scripting in the layout. This is based on general knowledge of TouchOSC, to be confirmed with Boss's layout.
+
+1. **Float ports:** `/jack/subscribe` and `/jack/unsubscribe` accept a whole-number float port (`21601.0` means 21601). A fractional value or one outside 1–65535 is still a 400.
+2. **Buttons on argument-less commands:** `/jack/rest`, `/jack/<motor>/rest`, `/jack/ping` and `/jack/status` also accept one numeric argument. A non-zero value (press) acts, 0 (release) is ignored silently, and no argument acts as today. A string or a second argument is still a 400.
+3. **One address per pose:** `/jack/<motor>/pose/<name>` plays that pose for its default duration, for example `/jack/elbow/pose/up` or `/jack/pivot/pose/left`. It follows the same button rule as item 2. An unknown pose is a 404. `/jack/<motor>/pose <name> [seconds]` is unchanged. The per-pose address is OSC-only; HTTP keeps `POST /<motor>/pose`.
+4. **Fader feedback:** subscribers and the status reply also get `/jack/<motor>` (float). It carries the motor's current value command (0–1, or −1–1 for the pivot), or 0.0 when the motor rests or is playing a pose. A fader on `/jack/<motor>` therefore follows what Jack is doing, for example dropping to 0 when the dead-man rule rests the motor.
+5. **Mouth mode toggle:**
+   - `/jack/mouth/mode` also accepts a number: non-zero means `show`, 0 means `live`.
+   - `/jack/mouth/mode/show` takes the same number as input.
+   - Feedback includes `/jack/mouth/mode/show` (float 1.0 in show, 0.0 in live), so one toggle on that address both switches the mode and lights up correctly. Use a **toggle** button there: a momentary button's release (0) would switch back to live.
+   - The string forms (`live`/`show`) are unchanged.
+
+Feedback order: each motor's `/jack/<motor>`, `volts` and `max_hold`, then `/jack/mouth/mode` (string), `/jack/mouth/mode/show` (float), then `/jack/mumble`. Feedback values meant for TouchOSC controls are floats.
+
 ### HTTP (TCP, default port 8080, `JACK_HTTP_PORT`)
 
 Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
