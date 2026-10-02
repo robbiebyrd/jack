@@ -88,6 +88,9 @@ class OscContext:
     log: RateLimitedLog
 
 
+_QUERY_ROUTES = ("/ping", "/status", "/subscribe", "/unsubscribe")
+
+
 def osc_command(address: str, args: Sequence[object], profiles: Mapping[str, MotorProfile]) -> Command | OscQuery:
     if not address.startswith(OSC_PREFIX + "/"):
         raise CommandError(f"unknown address {address!r}", 404)
@@ -128,7 +131,7 @@ def handle_osc(address: str, args: Sequence[object], sender: Destination, contex
     log = context.log
     try:
         command = osc_command(address, args, context.profiles)
-        if isinstance(command, Ping | StatusRequest | Subscribe | Unsubscribe):
+        if isinstance(command, OscQuery):
             _answer(command, sender, context)
         else:
             apply(command, context.board)
@@ -136,19 +139,19 @@ def handle_osc(address: str, args: Sequence[object], sender: Destination, contex
         # Keyed by status so a flood of varied bad addresses stays one line per kind.
         log(f"ignored {error.status}", f"Ignored OSC {_clip(address)} {_clip(list(args))}: {_clip(error)}")
         return
-    except OSError as error:
-        log("reply failed", f"OSC reply for {_clip(address)} failed: {_clip(error)}")
-        return
     if isinstance(command, SetValue) and command.value != command.requested:
         log(f"clamped {command.motor}", f"Clamped OSC {_clip(address)} {command.requested} to {command.value}")
 
 
 def _answer(query: OscQuery, sender: Destination, context: OscContext) -> None:
     reply_to = (sender[0], context.reply_port or sender[1])
-    if isinstance(query, Ping):
-        context.send(reply_to, [("/jack/pong", [])])
-    elif isinstance(query, StatusRequest):
-        context.send(reply_to, state_messages(context.board.status(context.mumble_connected())))
+    if isinstance(query, Ping | StatusRequest):
+        messages = [("/jack/pong", [])] if isinstance(query, Ping) else state_messages(
+            context.board.status(context.mumble_connected()))
+        try:
+            context.send(reply_to, messages)
+        except OSError as error:
+            context.log("reply failed", f"OSC reply to {reply_to} failed: {_clip(error)}")
     else:
         destination = (sender[0], query.port or reply_to[1])
         if isinstance(query, Unsubscribe):
@@ -164,9 +167,6 @@ def _clip(value: object) -> str:
     """Shorten text from the network so one packet can't fill the journal."""
     text = str(value)
     return text if len(text) <= MAX_LOGGED_CHARS else text[:MAX_LOGGED_CHARS] + "…"
-
-
-_QUERY_ROUTES = ("/ping", "/status", "/subscribe", "/unsubscribe")
 
 
 def _query(route: str, args: Sequence[object]) -> OscQuery:

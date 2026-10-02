@@ -191,19 +191,21 @@ def test_feedback_thread_sends_the_full_set_to_a_subscriber_then_stops():
 
 
 class FailingTo:
-    """An endpoint whose send raises OSError for one destination and delegates for the rest."""
+    """An endpoint whose send raises `error` for one destination and delegates for the rest."""
 
-    def __init__(self, endpoint, bad_destination):
+    def __init__(self, endpoint, bad_destination, error=OSError("unreachable")):
         self._endpoint = endpoint
         self._bad = bad_destination
+        self._error = error
 
     def send(self, destination, messages):
         if destination == self._bad:
-            raise OSError("unreachable")
+            raise self._error
         self._endpoint.send(destination, messages)
 
 
-def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues():
+@pytest.mark.parametrize("error", [OSError("unreachable"), ValueError("unreachable")])
+def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues(error):
     endpoint = OscEndpoint("127.0.0.1", 0)
     bad = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     bad.bind(("127.0.0.1", 0))
@@ -221,7 +223,7 @@ def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues():
     subs.subscribe(bad.getsockname())
     subs.subscribe(good.getsockname())
     stop_feedback = start_feedback(
-        FailingTo(endpoint, bad.getsockname()), subs, lambda: snapshot, log, interval_s=0.01
+        FailingTo(endpoint, bad.getsockname(), error), subs, lambda: snapshot, log, interval_s=0.01
     )
     try:
         got = recv_messages(good, len(state_messages(snapshot)))
@@ -257,6 +259,31 @@ def test_an_unexpected_error_in_a_feedback_cycle_is_logged_and_feedback_continue
         got = recv_messages(client, len(state_messages(snapshot)))
         assert got == [(address, args) for address, args in state_messages(snapshot)]
         assert logged == [("feedback loop", "OSC feedback cycle failed: KeyError: 'motors'")]
+    finally:
+        stop_feedback.set()
+        client.close()
+        endpoint.close()
+
+
+def test_status_is_not_read_while_nobody_is_subscribed():
+    endpoint = OscEndpoint("127.0.0.1", 0)
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client.bind(("127.0.0.1", 0))
+    subs = Subscribers(time.monotonic)
+    snapshot = feedback_snapshot()
+    calls = []
+
+    def status():
+        calls.append(1)
+        return snapshot
+
+    stop_feedback = start_feedback(endpoint, subs, status, lambda key, message: None, interval_s=0.01)
+    try:
+        time.sleep(0.2)
+        assert calls == []
+        subs.subscribe(client.getsockname())
+        recv_messages(client, len(state_messages(snapshot)))
+        assert calls
     finally:
         stop_feedback.set()
         client.close()

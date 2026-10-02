@@ -29,11 +29,11 @@
 
 ## Review Focus
 
-1. **A subscriber that disappears**, such as a laptop leaving: its expiry after 60 s stops the sends, and a send error to it (ICMP unreachable shows up as `OSError` on Linux UDP) is logged, rate-limited, without stopping the others. Tested in Tasks 1 and 3.
+1. **A subscriber that disappears**, such as a laptop leaving: a vanished subscriber is removed by the 60 s lease (unconnected UDP sockets don't report ICMP errors without IP_RECVERR); a send error to any subscriber is logged, rate-limited, without stopping the others. Tested in Tasks 1 and 3.
 2. **A flood of `/jack/subscribe` from many ports** never exceeds 8 subscribers; refusals are logged and rate-limited. Tested in Tasks 1 and 2.
 3. **Bad subscribe ports** (0, 70000, `"x"`, `True`) get a 400 and are ignored with a log line. Tested in Task 2.
 4. **`/jack/status` and `/jack/ping` over HTTP** are not routes, so they get a 404. HTTP keeps its `/status`. Tested in Task 2.
-5. **A packet that arrives before the handler is set up** is ignored, not crashed on. The endpoint binds first and serves later. Tested in Task 3.
+5. **A packet that arrives before the handler is set up**: packets arriving between bind and `serve()` are queued and handled when serving starts. The endpoint binds first and serves later. Tested in Task 3.
 
 ---
 

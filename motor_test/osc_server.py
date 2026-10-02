@@ -64,6 +64,8 @@ def start_feedback(
 
     def run() -> None:
         while not stop.wait(interval_s):
+            if len(subscribers) == 0:
+                continue
             try:
                 batches = subscribers.due(state_messages(status()))
             except Exception as error:
@@ -73,7 +75,8 @@ def start_feedback(
             for destination, messages in batches:
                 try:
                     endpoint.send(destination, messages)
-                except OSError as error:
+                except Exception as error:
+                    # Whatever one destination raises must not stop the others or the thread.
                     log(f"feedback {destination}", f"OSC feedback to {destination} failed: {error}")
 
     threading.Thread(target=run, name="osc-feedback", daemon=True).start()

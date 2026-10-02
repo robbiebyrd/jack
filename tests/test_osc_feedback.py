@@ -90,3 +90,22 @@ def test_change_tracking_is_per_subscriber():
     subs.subscribe(B)
     changed = state_messages(status(hand_volts=2.0))
     assert subs.due(changed) == [(A, [("/jack/hand/volts", [2.0])]), (B, changed)]
+
+
+def test_a_subscription_is_still_alive_just_before_60_seconds():
+    clock = FakeClock()
+    subs = Subscribers(clock)
+    subs.subscribe(A)
+    clock.advance(59.99)
+    assert len(subs) == 1
+    assert [destination for destination, _ in subs.due(state_messages(status()))] == [A]
+
+
+def test_an_expired_subscriber_frees_a_slot_at_the_cap():
+    clock = FakeClock()
+    subs = Subscribers(clock)
+    for port in range(MAX_SUBSCRIBERS):
+        subs.subscribe(("10.10.0.22", 20000 + port))
+    clock.advance(60.0)
+    assert subs.subscribe(B)
+    assert len(subs) == 1

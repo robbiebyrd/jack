@@ -474,7 +474,7 @@ Jack answers and reports state over OSC, as well as taking commands.
   - `motor_test/osc_feedback.py` (pure, injected clock) turns a ControlBoard status into state messages, detects changes per subscriber, and keeps the subscriber list (expiry, cap).
   - A daemon "osc-feedback" thread in `motor_test/osc_server.py` reads the board every 20 ms and sends. The talk loop never does network I/O, so a slow network can't stall the motors.
   - The ping, status, subscribe and unsubscribe routes are parsed in `show_commands.py` like every other command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
-- **Not provided:** OSC over TCP, authentication, and feedback over HTTP (HTTP has `/status`).
+- **Not provided:** OSC over TCP, authentication, protection against a LAN host subscribing on another host's behalf or filling the 8 slots (follows from no authentication; bounded by the cap and the 60 s lease), and feedback over HTTP (HTTP has `/status`).
 
 ### HTTP (TCP, default port 8080, `JACK_HTTP_PORT`)
 

@@ -226,7 +226,8 @@ def test_osc_only_routes_are_not_http_commands(path):
     assert error.value.status == 404
 
 
-def test_a_failed_reply_is_logged_not_raised():
+@pytest.mark.parametrize("address", ["/jack/ping", "/jack/status"])
+def test_a_failed_reply_is_logged_with_its_destination_not_raised(address):
     lines, clock = [], FakeClock()
 
     def failing_send(dest, msgs):
@@ -234,8 +235,18 @@ def test_a_failed_reply_is_logged_not_raised():
 
     context, _ = osc_context(board(), lines, clock)
     context = dataclasses.replace(context, send=failing_send)
-    handle_osc("/jack/ping", [], SENDER, context)
-    assert lines and "reply" in lines[0].lower()
+    handle_osc(address, [], SENDER, context)
+    assert len(lines) == 1
+    assert f"OSC reply to {SENDER} failed: network unreachable" in lines[0]
+
+
+def test_unsubscribe_without_a_port_removes_a_subscription_made_without_one():
+    lines, clock = [], FakeClock()
+    context, _ = osc_context(board(), lines, clock)
+    handle_osc("/jack/subscribe", [], SENDER, context)
+    assert len(context.subscribers) == 1
+    handle_osc("/jack/unsubscribe", [], SENDER, context)
+    assert len(context.subscribers) == 0
 
 
 def test_integer_too_large_for_a_float_is_a_400():

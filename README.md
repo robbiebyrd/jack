@@ -134,9 +134,16 @@ let the command through.
 | `/jack/subscribe` | optional int port | Sends state messages to the sender (or that port) for 60 s |
 | `/jack/unsubscribe` | optional int port | Stops them |
 
-Replies and feedback go to the sender's IP and source port. Set `JACK_OSC_REPLY_PORT` in
+Replies and feedback leave from Jack's port 9000 and go to the sender's IP and source port, which
+the controller's firewall or NAT usually lets through. Set `JACK_OSC_REPLY_PORT` in
 `/etc/jack/jack.env` to send them to a fixed port instead (for a controller that listens on a
-different port than it sends from); a port argument to `/jack/subscribe` overrides both.
+different port than it sends from); a port argument to `/jack/subscribe` overrides both. With
+either, the controller machine must allow inbound UDP on that port.
+
+Port arguments must be OSC ints (type `i`). A float port, which some controllers send for every
+number by default, is rejected with a logged "Ignored OSC … port must be an integer" and no
+feedback. `/jack/unsubscribe` must carry the same port argument as the `/jack/subscribe` it
+undoes (or none, if none was used), otherwise it silently does nothing. OSC is UDP only, no TCP.
 
 A subscription lasts 60 s: renew it by sending `/jack/subscribe` again at least every 60 s, or it
 lapses. At most 8 subscribers are served. A subscriber gets every state message on subscribing and
@@ -144,7 +151,7 @@ renewing and once a second after that, and in between only the ones that changed
 
 | State message | Value |
 |---|---|
-| `/jack/<motor>/volts` | float, volts now applied to the motor |
+| `/jack/<motor>/volts` | float, the volts Jack last drove |
 | `/jack/<motor>/max_hold` | int 0 or 1, whether the max hold tripped |
 | `/jack/mouth/mode` | string, `live` or `show` |
 | `/jack/mumble` | int 0 or 1, whether Mumble is connected |
