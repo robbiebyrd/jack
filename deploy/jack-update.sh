@@ -21,7 +21,7 @@ main() {
   fi
 
   echo "Deploying $target (was $current)"
-  # Install a changed pymumble pin before switching code, so code never runs without it.
+  # Install changed Python pins (pymumble, python-osc) before switching code, so code never runs without them.
   # A failed install stops here (set -e): the old commit keeps running and the next poll retries.
   if ! git diff --quiet "$current" "$target" -- requirements-pi.txt; then
     local requirements="$repo_dir/.git/jack-requirements-pi.txt"

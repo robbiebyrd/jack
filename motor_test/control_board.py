@@ -48,8 +48,11 @@ class ControlBoard:
             return self._mouth_mode
 
     def set_mouth_mode(self, mode: str) -> None:
+        """Switch the mouth's source; a real switch drops the mouth's command so a stale one can't resume later."""
         _check_mode(mode)
         with self._lock:
+            if mode != self._mouth_mode:
+                self._commands.pop("mouth", None)
             self._mouth_mode = mode
 
     def set_value(self, motor: str, value: float) -> None:

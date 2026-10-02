@@ -3,7 +3,7 @@
 Raspberry Pi + two Waveshare Motor Driver HATs driving an animatronic's four motors: mouth,
 hand, pivot and elbow. `main.py` has Jack talk: it joins a Mumble server, plays the voice on the
 3.5 mm jack and moves the mouth with its loudness, and takes show control over OSC and HTTP for
-all four motors. Every motor is braked on exit. See `SPEC.md`.
+all four motors. Every motor is braked at startup and on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 
@@ -13,7 +13,7 @@ ssh -t 10.10.0.54 sudo bash install.sh
 ```
 
 This installs git, mumble-server and the audio packages, enables I2C, creates the `jack` system
-user and the pymumble venv (`/opt/jack-venv`), clones to `/opt/jack`, creates `/etc/jack/jack.env`,
+user and the Python venv for pymumble and python-osc (`/opt/jack-venv`), clones to `/opt/jack`, creates `/etc/jack/jack.env`,
 and enables `jack.service` and `jack-update.timer`.
 
 ## Deploys
@@ -125,8 +125,8 @@ most once a minute per kind (`journalctl -u jack`).
 ### HTTP
 
 JSON in and out. A bad request gets a one-line JSON error: `400` bad input, `404` unknown motor,
-pose or path, `409` a mouth move while the mouth is in `live` mode, `413` a body over 4 KiB, `500` an
-unexpected error.
+pose or path, `409` a mouth move while the mouth is in `live` mode, `413` a body over 4 KiB, `408` a body
+that doesn't arrive within 5 s, `500` an unexpected error.
 
 ```bash
 curl -X POST http://10.10.0.54:8080/hand -d '{"value": 0.5}'
@@ -152,7 +152,9 @@ Security > Local Network) to reach the Pi.
 `live` (the default) has the mouth follow the voice, and mouth commands are refused (HTTP `409`,
 OSC logged and ignored). `show` has it follow commands like the other motors. Switch at runtime
 with `/jack/mouth/mode show` (OSC) or `POST /mouth/mode`; the startup mode is `JACK_MOUTH_MODE`,
-and a restart returns to it.
+and a restart returns to it. A switch never jumps the mouth: show takes over from where lip sync
+left it (closing it with the rest pulse if nothing is commanded), live starts lip sync closed, and
+any mouth command is dropped.
 
 ### Settings in `/etc/jack/jack.env`
 

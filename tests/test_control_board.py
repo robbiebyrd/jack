@@ -95,6 +95,22 @@ def test_mouth_mode_switches_and_is_validated():
         ControlBoard(PROFILES, 0.0, "live", FakeClock())
 
 
+def test_changing_the_mouth_mode_drops_the_mouths_command_only():
+    b, _ = board("show")
+    b.set_value("mouth", 1.0)
+    b.set_value("hand", 1.0)
+    b.set_mouth_mode("live")
+    assert b.target_volts("mouth") is None
+    assert b.target_volts("hand") == 2.0
+
+
+def test_setting_the_same_mouth_mode_keeps_the_mouths_command():
+    b, _ = board("show")
+    b.set_value("mouth", 1.0)
+    b.set_mouth_mode("show")
+    assert b.target_volts("mouth") == -6.0
+
+
 def test_status_reports_mode_commands_reports_and_motor_facts():
     b, clock = board()
     b.set_value("hand", 0.5)

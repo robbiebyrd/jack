@@ -16,6 +16,8 @@ from motor_test.poses import MotorProfile
 from motor_test.show_commands import CommandError, apply, http_command
 
 MAX_BODY_BYTES = 4096
+# A phone dropping Wi-Fi mid-request must not hold a server thread forever.
+REQUEST_TIMEOUT_S = 5.0
 _PAGE_PATH = Path(__file__).resolve().parent / "control_page.html"
 
 
@@ -30,6 +32,8 @@ def start_http_server(
     page = _PAGE_PATH.read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
+        timeout = REQUEST_TIMEOUT_S
+
         def do_GET(self) -> None:
             self._respond(self._get)
 
@@ -72,7 +76,10 @@ def start_http_server(
             length = self._content_length()
             if length > MAX_BODY_BYTES:
                 raise CommandError(f"request body over {MAX_BODY_BYTES} bytes", 413)
-            raw = self.rfile.read(length) if length else b""
+            try:
+                raw = self.rfile.read(length) if length else b""
+            except TimeoutError as error:
+                raise CommandError(f"request body did not arrive within {REQUEST_TIMEOUT_S} s", 408) from error
             if not raw.strip():
                 return {}
             try:

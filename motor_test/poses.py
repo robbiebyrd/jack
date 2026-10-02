@@ -47,6 +47,11 @@ class MotorProfile:
         magnitude = self.min_v + (self.max_v - self.min_v) * min(1.0, abs(value))
         return math.copysign(magnitude, value) * self.sign
 
+    @property
+    def rest_pulse_ticks(self) -> int:
+        """How many 20 ms ticks the rest pulse lasts; 0 when the motor has none."""
+        return whole_steps(self.rest_pulse_s, TICK_S) if self.rest_pulse_s > 0 else 0
+
 
 def load_profiles(paths: Sequence[Path], supply_volts: float) -> dict[str, MotorProfile]:
     """Merge the files in order (later keys and poses replace earlier ones) and validate every motor.

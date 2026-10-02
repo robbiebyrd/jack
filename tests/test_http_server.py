@@ -1,11 +1,14 @@
 import http.client
 import json
+import socket
+import time
 import urllib.error
 import urllib.request
 
 import pytest
 
 from motor_test.control_board import ControlBoard
+from motor_test import http_server
 from motor_test.http_server import MAX_BODY_BYTES, start_http_server
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
@@ -121,3 +124,37 @@ def test_unexpected_error_is_a_json_500_and_the_server_keeps_serving(capsys):
         server.shutdown()
         server.server_close()
     assert "RuntimeError" in capsys.readouterr().err
+
+
+def read_until_closed(sock, deadline_s):
+    """Everything the server sends until it closes the connection; fails if that takes past `deadline_s`."""
+    sock.settimeout(deadline_s)
+    started, received = time.monotonic(), b""
+    while chunk := sock.recv(4096):
+        received += chunk
+    assert time.monotonic() - started < deadline_s
+    return received
+
+
+@pytest.fixture
+def short_timeout_server(monkeypatch):
+    monkeypatch.setattr(http_server, "REQUEST_TIMEOUT_S", 0.5)
+    board = ControlBoard(PROFILES, 0.5, "live", FakeClock())
+    server = start_http_server("127.0.0.1", 0, board, PROFILES, lambda: True)
+    yield server.server_address
+    server.shutdown()
+    server.server_close()
+
+
+def test_a_body_that_never_arrives_times_out_with_a_json_408(short_timeout_server):
+    with socket.create_connection(short_timeout_server) as sock:
+        sock.sendall(b"POST /hand HTTP/1.1\r\nHost: jack\r\nContent-Length: 10\r\n\r\n")
+        response = read_until_closed(sock, 0.5 + 2.0)
+    head, _, body = response.partition(b"\r\n\r\n")
+    assert head.split(b" ")[1] == b"408"
+    assert "error" in json.loads(body)
+
+
+def test_a_silent_connection_is_closed_after_the_timeout(short_timeout_server):
+    with socket.create_connection(short_timeout_server) as sock:
+        assert read_until_closed(sock, 0.5 + 2.0) == b""

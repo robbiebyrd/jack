@@ -209,6 +209,22 @@ def test_a_missing_hat_exits_naming_its_address():
     assert "0x41" in str(exit_info.value.code)
 
 
+def test_the_first_hat_is_braked_before_a_missing_second_hat_stops_the_app():
+    bus = MissingHatBus()
+    with pytest.raises(SystemExit) as exit_info:
+        main.build_motors(bus)
+    assert "0x41" in str(exit_info.value.code)
+
+    def off_register_writes(channel, low, high):
+        base = 0x06 + 4 * channel
+        return {(0x40, base + 2, low), (0x40, base + 3, high)}
+
+    for direction_pin in (1, 2, 3, 4):  # IN1 and IN2 of channels A and B held high: short brake
+        assert off_register_writes(direction_pin, 0xFF, 0x0F) <= set(bus.writes)
+    for pwm in (0, 5):  # duty zeroed on both channels
+        assert off_register_writes(pwm, 0x00, 0x00) <= set(bus.writes)
+
+
 def test_a_non_ascii_digit_port_exits_naming_the_variable():
     with pytest.raises(SystemExit) as exit_info:
         main.show_control_config({"JACK_OSC_PORT": "²"})

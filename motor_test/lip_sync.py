@@ -8,7 +8,6 @@ from enum import Enum
 
 from motor_test.pcm import TICK_S
 from motor_test.poses import MotorProfile
-from motor_test.ramp import whole_steps
 from motor_test.talk_settings import TalkSettings
 
 
@@ -25,7 +24,7 @@ class MouthController:
         self._settings = settings
         self._mouth = mouth
         self._slew_per_tick = mouth.slew_v_per_s * TICK_S
-        self._close_ticks = whole_steps(mouth.rest_pulse_s, TICK_S) if mouth.rest_pulse_s > 0 else 0
+        self._close_ticks = mouth.rest_pulse_ticks
         self._state = _State.CLOSED
         self._magnitude = 0.0
         self._close_ticks_left = 0

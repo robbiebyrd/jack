@@ -15,6 +15,7 @@ from typing import NoReturn
 from smbus2 import SMBus
 
 from motor_test.alsa_sink import open_alsa_sink
+from motor_test.attempt_all import attempt_all
 from motor_test.control_board import MOUTH_MODES, ControlBoard
 from motor_test.http_server import start_http_server
 from motor_test.motors import MOTORS
@@ -206,17 +207,25 @@ def _env_port(environ: Mapping[str, str], var: str, default: int) -> int:
 
 
 def build_motors(bus) -> dict[str, Tb6612Motor]:
-    """Every motor on its HAT and channel; a HAT that doesn't answer stops the app naming its address."""
-    chips: dict[int, Pca9685] = {}
-    for spec in MOTORS:
-        if spec.address not in chips:
-            try:
-                chips[spec.address] = Pca9685(bus, spec.address, PWM_FREQ_HZ)
-            except OSError as error:
-                raise SystemExit(
-                    f"Motor HAT at {spec.address:#04x} is not responding ({error}); check it is seated and its address pads"
-                ) from error
-    return {spec.name: Tb6612Motor(chips[spec.address], MOTOR_CHANNELS[spec.channel]) for spec in MOTORS}
+    """Every motor on its HAT and channel, braked as soon as its HAT is up.
+
+    A crash without cleanup can leave a HAT driving at its last duty, so each HAT's motors are
+    braked before the next HAT is tried. A HAT that doesn't answer stops the app naming its address.
+    """
+    motors: dict[str, Tb6612Motor] = {}
+    for address in dict.fromkeys(spec.address for spec in MOTORS):
+        try:
+            chip = Pca9685(bus, address, PWM_FREQ_HZ)
+            hat_motors = {
+                spec.name: Tb6612Motor(chip, MOTOR_CHANNELS[spec.channel]) for spec in MOTORS if spec.address == address
+            }
+            attempt_all(motor.stop for motor in hat_motors.values())
+        except OSError as error:
+            raise SystemExit(
+                f"Motor HAT at {address:#04x} is not responding ({error}); check it is seated and its address pads"
+            ) from error
+        motors.update(hat_motors)
+    return motors
 
 
 def main() -> None:

@@ -71,3 +71,31 @@ def test_tripping_max_hold_plays_the_rest_pulse():
     driver = MotorDriver(profile("mouth", slew_v_per_s=1000.0))
     run(driver, [-3.0] * 50)
     assert run(driver, [-3.0] * 5) == [0.5, 0.5, 0.5, 0.5, BRAKE]
+
+
+def test_resuming_an_open_motor_then_resting_plays_the_rest_pulse():
+    driver = MotorDriver(profile("mouth"))
+    driver.resume_from(-3.0)
+    assert run(driver, [None] * 5) == [0.5, 0.5, 0.5, 0.5, BRAKE]
+
+
+def test_resuming_slews_from_the_motors_real_volts():
+    driver = MotorDriver(profile("mouth"))  # 48 V/s × 0.02 s = 0.96 V per tick
+    driver.resume_from(-3.0)
+    assert driver.update(-6.0) == pytest.approx(-3.96)
+
+
+def test_resuming_clears_a_tripped_max_hold_and_a_pending_pulse():
+    driver = MotorDriver(profile("mouth", slew_v_per_s=1000.0))
+    run(driver, [-3.0] * 51)
+    assert driver.max_hold_tripped
+    driver.resume_from(-2.0)
+    assert not driver.max_hold_tripped
+    assert run(driver, [-2.0] * 50) == [-2.0] * 50
+
+
+def test_a_reversal_landing_on_zero_then_resting_restarts_the_hold_count():
+    driver = MotorDriver(profile("pivot", slew_v_per_s=50.0))  # 1 V per tick; max_hold 1.0 s = 50 ticks
+    assert run(driver, [1.0, -1.0, None]) == [1.0, 0.0, BRAKE]
+    assert run(driver, [2.0] * 50)[-1] == 2.0 and not driver.max_hold_tripped
+    assert driver.update(2.0) == BRAKE and driver.max_hold_tripped

@@ -336,8 +336,10 @@ source of movement switches.
   (2026-10-02); hand, pivot and elbow are uncalibrated.
 - Both boards are required: if either fails at startup the app exits with a
   clear message and systemd keeps retrying (no silent degraded mode).
-- Every motor starts braked, and every exit brakes all four
-  (`attempt_all`).
+- Every motor is braked at startup, each HAT's motors as soon as that HAT
+  is up (before the next HAT, ALSA or anything else that might fail, since a
+  crash without cleanup can leave a HAT at its last duty), and every exit
+  brakes all four (`attempt_all`).
 
 ### Poses and per-motor settings (`poses.toml`)
 
@@ -418,6 +420,11 @@ on the hardware).
 - Switched at runtime by OSC `/jack/mouth/mode live|show` or
   `POST /mouth/mode`. The startup mode comes from `JACK_MOUTH_MODE` in
   `jack.env` (`live` or `show`); a restart returns to it (not persisted).
+- A switch never jumps the mouth: to `show`, the mouth's driver takes over
+  from the volts lip sync left it at, so it slews from there or, with no
+  command, plays the rest pulse before braking; to `live`, lip sync starts
+  fresh (closed) and opens with its own slew. A real switch drops any mouth
+  command, so a stale show command can't resume after a later switch back.
 
 ### OSC (UDP, default port 9000, `JACK_OSC_PORT`)
 
@@ -436,7 +443,10 @@ these log lines are rate-limited to one per kind per minute
 authentication: anyone on the LAN may send commands (Boss, 2026-10-02).
 Library: `python-osc` (pip, pinned in `requirements-pi.txt` and
 `requirements-dev.txt`; no dependencies of its own, Python ≥ 3.10; not
-packaged by Debian), imported only in `motor_test/osc_server.py`.
+packaged by Debian), imported only in `motor_test/osc_server.py`. Bundle
+timetags are ignored (`Dispatcher(strict_timing=False)`): every message
+acts on arrival, so a future timetag can't hold a thread asleep; request
+threads are daemon threads so they never keep the process from exiting.
 
 ### HTTP (TCP, default port 8080, `JACK_HTTP_PORT`)
 
@@ -450,6 +460,9 @@ Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
   `409`, a body over 4 KiB → `413`, an unexpected error → `500` (also logged
   to stderr), each with a one-line JSON error. Request logging is off (a held slider sends ~20
   requests a second).
+- Each connection times out after 5 s of silence (`REQUEST_TIMEOUT_S`), so a
+  phone dropping Wi-Fi mid-request can't hold a thread forever; a body that
+  doesn't arrive in time → `408`.
 - `GET /status`: mouth mode; Mumble connected or not; per motor the
   current command, present volts, whether max hold has tripped, whether it
   is calibrated, whether its range is two-sided, and its pose names.
@@ -622,12 +635,14 @@ support them:
   (`POSES_PATHS`: the repo file, then `/etc/jack/poses.toml`), and reads the
   ports, dead-man timeout and startup mouth mode with
   `show_control_config()` (`JACK_OSC_PORT`, `JACK_HTTP_PORT`,
-  `JACK_CONTROL_TIMEOUT_S`, `JACK_MOUTH_MODE`). It builds the `ControlBoard`,
-  then both HATs and all four motors with `build_motors` (a HAT that does not
-  answer stops the app naming its address), the ALSA sink and the Mumble
-  bot, and starts the OSC (UDP) and HTTP (TCP) servers on `0.0.0.0`. It
-  installs a SIGTERM handler that raises `SystemExit` so the loop's cleanup
-  runs, sends `READY=1` after init, and runs the talk loop with `on_second`
+  `JACK_CONTROL_TIMEOUT_S`, `JACK_MOUTH_MODE`). Before all of that it installs a SIGTERM
+  handler that raises `SystemExit` so the loop's cleanup runs. Once the
+  settings, profiles and show-control config are validated it builds the
+  `ControlBoard`, connects the Mumble bot, then builds both HATs and all four
+  motors with `build_motors` (each HAT's motors braked as soon as it is up; a
+  HAT that does not answer stops the app naming its address), opens the
+  ALSA sink, starts the OSC (UDP) and HTTP (TCP) servers on `0.0.0.0`, sends
+  `READY=1`, and runs the talk loop with `on_second`
   the Mumble-aware watchdog callback (`WATCHDOG=1` while the bot's thread
   lives, `SystemExit` once it has died). `run_profiles_loop` and
   `MOUTH_DEMO` are no longer used by `main.py`; they stay in the repo

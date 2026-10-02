@@ -50,6 +50,11 @@ def test_repo_poses_file_matches_the_spec():
         assert all(abs(pose.volts) == 2.0 and pose.seconds == 0.5 for pose in placeholder.poses.values())
 
 
+def test_rest_pulse_ticks_counts_whole_ticks_and_is_zero_without_a_pulse():
+    assert MOUTH.rest_pulse_ticks == 4  # 0.08 s at 20 ms a tick
+    assert HAND.rest_pulse_ticks == 0
+
+
 def test_value_maps_from_min_to_max_in_the_motors_direction():
     assert MOUTH.volts_for(0.0) == 0.0
     assert MOUTH.volts_for(1.0) == -6.0

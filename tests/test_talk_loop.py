@@ -1,7 +1,9 @@
 import pytest
 
 from motor_test.control_board import ControlBoard
-from motor_test.pcm import TICKS_PER_SECOND, silence
+from motor_test.envelope import EnvelopeFollower, rms_dbfs
+from motor_test.lip_sync import MouthController
+from motor_test.pcm import TICK_S, TICKS_PER_SECOND, silence
 from motor_test.ramp import volts_to_count
 from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
@@ -27,6 +29,26 @@ def stop_after(ticks):
         return False
 
     return until
+
+
+class SwitchingSource(ScriptedSource):
+    """ScriptedSource that switches the board's mouth mode at the start of tick `on_tick` (1-based)."""
+
+    def __init__(self, frames, board, mode, on_tick):
+        super().__init__(frames)
+        self._board, self._mode, self._on_tick = board, mode, on_tick
+        self._ticks = 0
+
+    def take_frames(self):
+        self._ticks += 1
+        if self._ticks == self._on_tick:
+            self._board.set_mouth_mode(self._mode)
+        return super().take_frames()
+
+
+def without_repeats(values):
+    """`values` with consecutive repeats dropped, as the loop writes a motor only when its drive changes."""
+    return [value for index, value in enumerate(values) if index == 0 or value != values[index - 1]]
 
 
 def four_motors(**replacements):
@@ -138,3 +160,31 @@ def test_a_motor_failing_to_stop_still_stops_the_others_and_closes_the_sink():
         talk([ScriptedSource([])], ticks=1, sink=sink, motors=motors)
     assert all(motors[name].calls[-1] == ("stop",) for name in ("hand", "pivot", "elbow"))
     assert sink.closed
+
+
+def test_switching_to_show_while_lip_sync_holds_the_mouth_open_plays_the_rest_pulse_before_braking():
+    board = new_board("live")
+    source = SwitchingSource([LOUD] * 10, board, "show", on_tick=3)
+    _, motors, _ = talk([source], ticks=10, board=board)
+    calls = motors["mouth"].calls
+    assert calls[1] == ("drive", volts_to_count(-6.0, SUPPLY_VOLTS))  # open wide on lip sync's second tick
+    # Rest pulse +0.5 V for 4 ticks closes the mouth, then the brake; the last stop is the loop's exit.
+    assert calls[2:] == [("drive", volts_to_count(0.5, SUPPLY_VOLTS)), ("stop",), ("stop",)]
+
+
+def test_switching_to_live_opens_from_closed_with_a_fresh_lip_sync_not_a_stale_one():
+    settings = TalkSettings()
+    board = new_board("show", profiles=PROFILES)
+    board.set_value("mouth", 1.0)
+    # The mouth's 48 V/s slew (0.96 V a tick) reaches -6 V on the 7th show tick; tick 8 is the first live one.
+    source = SwitchingSource([LOUD] * 12, board, "live", on_tick=8)
+    _, motors, _ = talk([source], ticks=12, board=board, profiles=PROFILES, settings=settings)
+    show_drives, live_drives = drives(motors["mouth"])[:7], drives(motors["mouth"])[7:]
+    assert show_drives[-1] == volts_to_count(-6.0, SUPPLY_VOLTS)
+    # What a lip sync that starts closed at tick 8 drives, fed the same smoothed levels.
+    envelope = EnvelopeFollower(settings.attack_s, settings.release_s, TICK_S)
+    levels = [envelope.update(rms_dbfs(LOUD)) for _ in range(12)]
+    fresh = MouthController(settings, PROFILES["mouth"])
+    expected = [volts_to_count(fresh.update(level), SUPPLY_VOLTS) for level in levels[7:]]
+    assert expected[0] == volts_to_count(-0.96, SUPPLY_VOLTS)
+    assert live_drives == without_repeats(expected)

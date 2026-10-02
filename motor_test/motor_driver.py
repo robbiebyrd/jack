@@ -27,8 +27,15 @@ class MotorDriver:
         self._profile = profile
         self._slew_per_tick = profile.slew_v_per_s * TICK_S
         self._max_hold_ticks = whole_steps(profile.max_hold_s, TICK_S)
-        self._pulse_ticks = whole_steps(profile.rest_pulse_s, TICK_S) if profile.rest_pulse_s > 0 else 0
+        self._pulse_ticks = profile.rest_pulse_ticks
         self._volts = 0.0
+        self._held_ticks = 0
+        self._pulse_left = 0
+        self.max_hold_tripped = False
+
+    def resume_from(self, volts: float) -> None:
+        """Take over a motor something else left at `volts`, so the next update slews (or rests) from there."""
+        self._volts = volts
         self._held_ticks = 0
         self._pulse_left = 0
         self.max_hold_tripped = False
@@ -57,9 +64,10 @@ class MotorDriver:
         return current + step
 
     def _to_rest(self) -> Drive:
+        # Reset even at exactly 0 V (a reversal can land there), so the next command gets its full max hold.
+        self._held_ticks = 0
         if self._volts != 0.0:
             self._volts = 0.0
-            self._held_ticks = 0
             self._pulse_left = self._pulse_ticks
         if self._pulse_left > 0:
             self._pulse_left -= 1

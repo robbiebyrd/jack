@@ -138,6 +138,13 @@ def test_logged_address_is_truncated():
     assert len(lines[0]) < 600 and "…" in lines[0]
 
 
+def test_logged_address_of_a_clamped_value_is_truncated():
+    lines, log = logging_handler()
+    address = "/jack" + "/" * 1000 + "hand"  # empty parts are skipped, so this still routes to the hand
+    handle_osc(address, [3.0], PROFILES, board(), log)
+    assert lines[0].startswith("Clamped OSC") and len(lines[0]) < 600
+
+
 def test_integer_too_large_for_a_float_is_a_400():
     with pytest.raises(CommandError) as error:
         http_command("/hand", {"value": 10**400}, PROFILES)

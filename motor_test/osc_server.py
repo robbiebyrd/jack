@@ -9,7 +9,8 @@ from pythonosc.osc_server import ThreadingOSCUDPServer
 
 def start_osc_server(host: str, port: int, handle: Callable[[str, list], None]) -> ThreadingOSCUDPServer:
     """Serve OSC on a daemon thread, passing every message's address and arguments to `handle`."""
-    dispatcher = Dispatcher()
+    # Live show control: a future bundle timetag would otherwise sleep its handler thread until then.
+    dispatcher = Dispatcher(strict_timing=False)
 
     def deliver(address: str, *args) -> None:
         # python-osc replies to the sender with any non-None handler return value.
@@ -17,5 +18,7 @@ def start_osc_server(host: str, port: int, handle: Callable[[str, list], None]) 
 
     dispatcher.set_default_handler(deliver)
     server = ThreadingOSCUDPServer((host, port), dispatcher)
+    # Per-packet threads must not keep the process alive after the talk loop exits.
+    server.daemon_threads = True
     threading.Thread(target=server.serve_forever, name="osc", daemon=True).start()
     return server

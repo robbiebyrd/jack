@@ -1,7 +1,10 @@
 import threading
+import time
 
 import pytest
 
+from pythonosc.osc_bundle_builder import OscBundleBuilder
+from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.udp_client import SimpleUDPClient
 
 from motor_test.osc_server import start_osc_server
@@ -78,5 +81,25 @@ def test_a_handler_return_value_does_not_break_delivery():
         client._sock.settimeout(0.3)
         with pytest.raises(TimeoutError):
             client._sock.recv(4096)
+    finally:
+        stop(server, client)
+
+
+def test_a_bundle_timed_in_the_future_is_delivered_at_once():
+    server, client, received, arrived = serve()
+    try:
+        bundle = OscBundleBuilder(time.time() + 5.0)
+        bundle.add_content(OscMessageBuilder("/jack/rest").build())
+        client.send(bundle.build())
+        assert arrived.wait(1.0)
+        assert received == [("/jack/rest", [])]
+    finally:
+        stop(server, client)
+
+
+def test_request_threads_do_not_hold_the_process_open():
+    server, client, _, _ = serve()
+    try:
+        assert server.daemon_threads is True
     finally:
         stop(server, client)

@@ -97,7 +97,7 @@ def handle_osc(
         log(f"ignored {error.status}", f"Ignored OSC {_clip(address)} {_clip(list(args))}: {_clip(error)}")
         return
     if isinstance(command, SetValue) and command.value != command.requested:
-        log(f"clamped {command.motor}", f"Clamped OSC {address} {command.requested} to {command.value}")
+        log(f"clamped {command.motor}", f"Clamped OSC {_clip(address)} {command.requested} to {command.value}")
 
 
 def _clip(value: object) -> str:
