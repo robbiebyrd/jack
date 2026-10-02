@@ -109,3 +109,16 @@ class ScriptedSource:
 
     def take_frames(self):
         return [self._frames.popleft()] if self._frames else []
+
+
+class FakeClock:
+    """A clock that only moves when told to, for timing rules without sleeping."""
+
+    def __init__(self, now=0.0):
+        self.now = now
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
