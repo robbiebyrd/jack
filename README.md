@@ -1,9 +1,9 @@
 # jack
 
-Raspberry Pi + Waveshare Motor Driver HAT driving an animatronic head's mouth
-(motor B). `main.py` has Jack talk: it joins a Mumble server, plays the voice on the
-3.5 mm jack and moves the mouth with its loudness, with motor A off, and
-short-brakes both on exit. See `SPEC.md`.
+Raspberry Pi + two Waveshare Motor Driver HATs driving an animatronic's four motors: mouth,
+hand, pivot and elbow. `main.py` has Jack talk: it joins a Mumble server, plays the voice on the
+3.5 mm jack and moves the mouth with its loudness, and takes show control over OSC and HTTP for
+all four motors. Every motor is braked on exit. See `SPEC.md`.
 
 ## Install on the Pi (once)
 
@@ -31,20 +31,29 @@ so a changed unit takes effect.
 gives up) and is watched by the systemd watchdog. If the loop stops pinging
 for 10 s, systemd kills and restarts it.
 
-## Calibrate the mouth
+## Calibrate a motor
 
 ```bash
-ssh -t 10.10.0.54 sudo systemctl stop jack   # free the HAT (brakes both motors)
-ssh -t 10.10.0.54 python3 /opt/jack/calibrate.py
-b> -4.5 0.8                                  # motor B at -4.5 V for 0.8 s, then brake
-b> close                                     # also: relax, open 0.5
-b> q
-ssh -t 10.10.0.54 sudo systemctl start jack  # resume the sequence
+ssh -t 10.10.0.54 sudo systemctl stop jack   # free the HATs (brakes all four motors)
+ssh -t 10.10.0.54 /opt/jack-venv/bin/python /opt/jack/calibrate.py mouth   # or hand, pivot, elbow
+mouth> -4.5 0.8                              # at -4.5 V for 0.8 s, then brake
+mouth> close                                 # a pose from poses.toml; also: relax, open 0.5
+mouth> q
+ssh -t 10.10.0.54 sudo systemctl start jack  # resume
 ```
 
-Negative volts open the mouth (0 V closed, about −6 V open). `open` ramps up
-to −6 V over 0.25 s. Moves run in 50 ms steps (durations must be whole steps),
-are capped at 3 s, and always end braked.
+Negative volts open the mouth (0 V closed, about −6 V open). Poses ramp up from 0 V at the
+motor's `slew_v_per_s`, then hold. Moves run in 50 ms steps (durations must be whole steps),
+are capped at 3 s, and always end braked. The tool lists the motor's poses when it starts.
+
+To measure a new motor (hand, pivot or elbow, whose entries in `poses.toml` are uncalibrated
+placeholders), stop the app and run `calibrate.py` with its name, then put the volts you find in
+`/etc/jack/poses.toml`:
+
+```bash
+sudo systemctl stop jack
+/opt/jack-venv/bin/python /opt/jack/calibrate.py elbow
+```
 
 After each deploy, the Pi's green and red onboard LEDs blink for 10 s.
 
@@ -61,7 +70,11 @@ Jack plays whatever is said in its Mumble server's root channel and moves the mo
 ### Tuning the lip sync
 
 Quickest: override any setting on the Pi. Add `JACK_<SETTING_NAME>` lines to `/etc/jack/jack.env`
-(names are the fields of `motor_test/talk_settings.py`, upper-case) and restart:
+(names are the fields of `motor_test/talk_settings.py`, upper-case) and restart. The mouth's
+volts are not among them: `min_v`, `max_v`, `slew_v_per_s`, `rest_pulse_v` and `rest_pulse_s` are
+tuned in `/etc/jack/poses.toml` under `[mouth]` (the app refuses to start if the old
+`JACK_OPEN_MIN_V`, `JACK_OPEN_MAX_V`, `JACK_OPEN_SLEW_V_PER_S`, `JACK_CLOSE_V` or `JACK_CLOSE_S` is
+still set):
 
 ```bash
 # /etc/jack/jack.env
@@ -84,7 +97,87 @@ ssh -t 10.10.0.54 'sudo systemctl stop jack && /opt/jack-venv/bin/python /opt/ja
 ```
 
 Run with `--help` for every setting. When you like a set of values, put them in `/etc/jack/jack.env` (or make them the defaults in
-`motor_test/talk_settings.py`), then `sudo systemctl start jack`.
+`motor_test/talk_settings.py`), then `sudo systemctl start jack`. Mouth volts go in `/etc/jack/poses.toml` `[mouth]`.
+
+## Show control
+
+An external show controller (QLab, a lighting desk, TouchDesigner, a script) commands the four
+motors (`mouth`, `hand`, `pivot`, `elbow`) over OSC (UDP, port 9000) or HTTP (TCP, port 8080).
+The voice keeps playing in every mode. There is no authentication: anyone on the LAN can send
+commands.
+
+Keep sending values: a value holds only while new ones keep arriving, and 0.5 s of silence rests
+the motor (`JACK_CONTROL_TIMEOUT_S`).
+
+### OSC
+
+| Address | Arguments | Effect |
+|---|---|---|
+| `/jack/<motor>` | float | Continuous value (0…1; pivot −1…1) |
+| `/jack/<motor>/pose` | string, optional float | Named pose, optional duration (s) |
+| `/jack/<motor>/rest` | none | That motor to rest |
+| `/jack/rest` | none | All motors to rest |
+| `/jack/mouth/mode` | `live` or `show` | Switch the mouth's source |
+
+Out-of-range values are clamped. Unknown motors, poses or addresses are ignored, and logged at
+most once a minute per kind (`journalctl -u jack`).
+
+### HTTP
+
+JSON in and out. A bad request gets a one-line JSON error: `400` bad input, `404` unknown motor,
+pose or path, `409` a mouth move while the mouth is in `live` mode, `413` a body over 4 KiB, `500` an
+unexpected error.
+
+```bash
+curl -X POST http://10.10.0.54:8080/hand -d '{"value": 0.5}'
+curl -X POST http://10.10.0.54:8080/hand/pose -d '{"name": "curl", "seconds": 2}'
+curl -X POST http://10.10.0.54:8080/hand/rest
+curl -X POST http://10.10.0.54:8080/rest
+curl -X POST http://10.10.0.54:8080/mouth/mode -d '{"mode": "show"}'
+curl http://10.10.0.54:8080/status
+```
+
+`/status` reports the mouth mode, whether Mumble is connected, and per motor its command, volts,
+whether max hold tripped, and its poses.
+
+### Control page
+
+Open `http://10.10.0.54:8080/` in a browser: a slider per motor, pose buttons, the live/show
+switch and a status panel. A held slider resends its value, and releasing it lets the motor rest.
+On macOS 15 and later the browser may need Local Network permission (System Settings > Privacy &
+Security > Local Network) to reach the Pi.
+
+### Mouth mode
+
+`live` (the default) has the mouth follow the voice, and mouth commands are refused (HTTP `409`,
+OSC logged and ignored). `show` has it follow commands like the other motors. Switch at runtime
+with `/jack/mouth/mode show` (OSC) or `POST /mouth/mode`; the startup mode is `JACK_MOUTH_MODE`,
+and a restart returns to it.
+
+### Settings in `/etc/jack/jack.env`
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `JACK_OSC_PORT` | `9000` | OSC UDP port |
+| `JACK_HTTP_PORT` | `8080` | HTTP TCP port |
+| `JACK_CONTROL_TIMEOUT_S` | `0.5` | Seconds without a new value before a motor rests |
+| `JACK_MOUTH_MODE` | `live` | Mouth mode at startup: `live` or `show` |
+
+### Motor settings: `poses.toml`
+
+`poses.toml` in the repo holds each motor's volts, slew, max hold, rest behaviour and named
+poses. Hand, pivot and elbow are marked uncalibrated placeholders until you measure them. To
+override on the Pi, create `/etc/jack/poses.toml` with only the keys you change, then
+`sudo systemctl restart jack`:
+
+```toml
+[hand]
+max_v = 3.0
+[hand.poses]
+curl = { volts = 3.0, seconds = 0.5 }
+```
+
+A mistake in either file stops the app with a one-line message in `journalctl -u jack`.
 
 ## Operate
 

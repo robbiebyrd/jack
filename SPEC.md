@@ -58,7 +58,9 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 
 Purpose: find which voltages move the animatronic head's mouth (driven by
 motor B) and how. The talk loop (see "Talking") replaces this demo in
-`main.py`; the calibration table below stays the basis for its settings.
+`main.py`; the calibration table below stays the basis for its settings. The
+numbered behaviour below is that retired demo, kept for `speaking_cycle` and
+`demo_cycle`, which `main.py` still defines.
 
 Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
 
@@ -87,26 +89,33 @@ prefer the closed and relaxed-open poses and keep fully open short.
    `MOUTH_DEMO` (close, rest 1.5 s, relax, rest 1.5 s, ramped full open for
    0.5 s; 4.5 s) remains available through `main.demo_cycle()` for checking
    the mechanism.
-3. **Motor A** holds 0 V for the whole cycle.
+3. **Motor A** held 0 V for the whole cycle. Now motor A is the hand: it
+   follows show control and rests when uncommanded (the demo functions
+   still keep it at 0 V).
 4. Repeat the cycle back-to-back, with no pause, until the process is
    stopped.
-5. On SIGTERM or any exception, **short-brake** both motors before exiting:
+5. On SIGTERM or any exception, **short-brake** every motor before exiting:
    duty 0, then IN1 = IN2 = high (the TB6612FNG shorts the motor leads).
    A failure braking one motor must not prevent braking the other.
 
 ## Calibration tool (`calibrate.py`)
 
-For finding mouth positions interactively on the Pi, without a commit per try
-(show control extends it to every motor: see "Calibration for every motor"):
+For finding a motor's voltages and positions interactively on the Pi,
+without a commit per try (see also "Calibration for every motor"):
 
 - Stop the app first (`sudo systemctl stop jack`); the tool refuses to run
-  while `jack.service` is active, since both would drive the same chip.
-- Run `python3 /opt/jack/calibrate.py` as a user in the `i2c` group. Each
-  line `<volts> <seconds>` drives motor B (negative = backward), then
-  short-brakes. `close`, `relax` and `open <seconds>` play the calibrated
-  poses from `motor_test/mouth.py` (so `open` ramps too). Commands play in
-  the app's 50 ms steps, so durations must be whole steps (0.8 works,
-  0.33 is rejected). `q` or end of input quits.
+  while `jack.service` is active, since both would drive the same chips.
+- Run `/opt/jack-venv/bin/python /opt/jack/calibrate.py <motor>`
+  (`mouth`, `hand`, `pivot` or `elbow`) as a user in the `i2c` group. It
+  names the motor's HAT and channel, and warns if its poses are
+  uncalibrated placeholders. Each line `<volts> <seconds>` drives that motor
+  (negative = backward), then short-brakes. A pose name from `poses.toml`
+  (`close`, `relax`, `open` for the mouth; `curl`, `left`, `right`, `up` for
+  the others), optionally followed by seconds, ramps from 0 V to the pose's
+  volts at the motor's `slew_v_per_s` (rounded up to whole steps), then holds
+  for the pose's seconds or the ones given. Commands play in 50 ms steps, so
+  durations must be whole steps (0.8 works, 0.33 is rejected). `q` or end of
+  input quits.
 - Volts must be within ±supply; seconds must be more than 0 and at most
   3 s, to limit stall heating against an end stop. Rejected lines never
   move the motor.
@@ -114,7 +123,8 @@ For finding mouth positions interactively on the Pi, without a commit per try
   Ctrl-C, and I2C errors.
 - Code: `motor_test/calibration.py` (`parse_command`, `run_calibration`,
   talking to motors only through `MotorOutput`) and `calibrate.py`
-  (composition root reusing `main.py`'s hardware constants).
+  (composition root reusing `main.py`'s hardware constants and
+  `POSES_PATHS`).
 
 ## Talking
 
@@ -184,9 +194,9 @@ One loop in `main.py`'s process, **paced by the sound card**: each tick
 takes the next 20 ms frame of voice from a queue (or 20 ms of silence if
 none arrived), writes it to ALSA (the blocking write is the clock),
 updates the envelope, computes the mouth voltage and drives motor B.
-Motor A holds 0 V. With show control (see "Show control") the same tick
-also drives the hand, pivot and elbow from the command board, and in
-`show` mode the mouth too.
+With show control (see "Show control") the same tick also drives the
+hand (motor A), pivot and elbow from the command board, and in `show` mode
+the mouth too; the hand follows show control and rests when uncommanded.
 
 - **Sources in:** the loop doesn't know where audio comes from. Each
   `VoiceSource` (the Mumble bot; in the tuning tool, a WAV file) puts
@@ -236,14 +246,15 @@ motor B out.
   `OPEN_MIN_V` until the level drops below `GATE_CLOSE_DB`.
 
 Starting values. **These are guesses to tune by eye**, except where the
-basis says calibration:
+basis says calibration. The rows marked "now poses.toml" no longer live in
+`TalkSettings`; see the note under the table:
 
 | Setting | Start | Basis |
 |---|---|---|
-| `OPEN_MIN_V` / `OPEN_MAX_V` | 1 V / 6 V | `OPEN_MAX_V`: calibration, fully open. `OPEN_MIN_V`: Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little (was 2 V, the calibrated relaxed open). Risk: the calibration never tested below 2 V; it is unknown that 1 V moves the mouth |
-| `OPEN_SLEW_V_PER_S` | 48 V/s | Boss: respond twice as fast (2026-09-28). Risk: the calibrated ramp was 24 V/s (6 V over `OPEN_RAMP_S` = 0.25 s) because stepping to -6 V strained the motor; 48 V/s trades some of that margin for speed |
+| `OPEN_MIN_V` / `OPEN_MAX_V` (now poses.toml `[mouth]` `min_v` / `max_v`) | 1 V / 6 V | `OPEN_MAX_V`: calibration, fully open. `OPEN_MIN_V`: Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little (was 2 V, the calibrated relaxed open). Risk: the calibration never tested below 2 V; it is unknown that 1 V moves the mouth |
+| `OPEN_SLEW_V_PER_S` (now poses.toml `[mouth]` `slew_v_per_s`) | 48 V/s | Boss: respond twice as fast (2026-09-28). Risk: the calibrated ramp was 24 V/s (6 V over `OPEN_RAMP_S` = 0.25 s) because stepping to -6 V strained the motor; 48 V/s trades some of that margin for speed |
 | `OPEN_CURVE` | 2.0 | Boss: too sensitive, wanted a curve (2026-09-28); medium syllables open ~a quarter |
-| `CLOSE_V` / `CLOSE_S` | 0.5 V / 0.08 s | Boss: respond twice as fast (2026-09-28) (whole 20 ms ticks); the random-speech demo Boss saw as lifelike used 0.5 V for 0.15 s |
+| `CLOSE_V` / `CLOSE_S` (now poses.toml `[mouth]` `rest_pulse_v` / `rest_pulse_s`) | 0.5 V / 0.08 s | Boss: respond twice as fast (2026-09-28) (whole 20 ms ticks); the random-speech demo Boss saw as lifelike used 0.5 V for 0.15 s |
 | `STALL_V` / `MAX_STALL_S` | 5 V / 0.5 s | The mouth demo held −6 V for 0.5 s |
 | `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.04 s | `ATTACK_S` guess; `RELEASE_S`: Boss: respond twice as fast (2026-09-28) |
 | `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −22 / −27 / −14 dBFS | Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little. Measured from Boss's voice via Mumble on the Pi (per 20 ms frame: p75 −24, p90 −15.7, p95 −13.1, p99 −9.6 dBFS; above −25 dBFS 27% of frames, above −20 18%): the open gate at −22 opens the mouth on ~22% of frames, and `FULL_DB` −14 lets hard syllables (p90 to p95) reach fully open |
@@ -297,9 +308,9 @@ would drive the chip and the sound card), using the same check as
 | Gap in voice | Silence is played; the state machine closes the mouth. |
 | Backlog | Dropped per `MAX_BACKLOG_MS`, logged. |
 | ALSA underrun (xrun) | Recover the device, log, continue. |
-| Other ALSA error, or I2C `OSError` | Propagates: both motors short-brake (`attempt_all`), the process exits, systemd restarts it (see Self-recovery). |
+| Other ALSA error, or I2C `OSError` | Propagates: all four motors short-brake (`attempt_all`), the process exits, systemd restarts it (see Self-recovery). |
 | Loop hangs | Watchdog kills and restarts after 10 s; the motor holds its last duty until then (accepted, as today). |
-| SIGTERM | `SystemExit`: brake both motors, close ALSA; the bot's daemon thread ends with the process, closing its connection. |
+| SIGTERM | `SystemExit`: brake all four motors, close ALSA; the bot's daemon thread ends with the process, closing its connection. |
 | pymumble's thread dies (e.g. the server rejects the password) | The next once-a-second watchdog check sees it and exits; systemd restarts Jack after 5 s and it retries. |
 | `mumble-server` crashes | Its own unit restarts it; Jack sees a disconnect. |
 
@@ -335,16 +346,18 @@ Pi, if present, overrides any entry. Read at startup (`tomllib`, standard
 library); an invalid file stops the app with a one-line message naming the
 file and entry. Per motor:
 
-- `range`: the magnitude in volts that 1.0 maps to, the volts at the low
-  end (just past rest), and the sign of "positive" (for the pivot: the
-  sign of "right"; left is the opposite).
+- `min_v`, `max_v`, `sign`: the magnitude in volts that 1.0 maps to
+  (`max_v`), the volts at the low end just past rest (`min_v`), and the sign
+  of "positive" (for the pivot: the sign of "right"; left is the opposite).
+  `calibrated` marks whether the entry was measured.
 - `slew_v_per_s`: how fast the drive may grow (all motors, as the mouth).
 - `max_hold_s`: longest continuous drive away from rest before the motor
   is forced to rest (stall protection).
 - `rest`: `"brake"` (short brake, the default and today's behaviour) or
   `"coast"` (leads open), in case braking slows a spring return; plus an
-  optional rest pulse `(volts, seconds)` played on the way to rest (the
-  mouth's close pulse +0.5 V, 0.08 s, since it holds its pose unpowered).
+  optional rest pulse (`rest_pulse_v`, `rest_pulse_s`) played on the way to
+  rest (the mouth's close pulse +0.5 V, 0.08 s, since it holds its pose
+  unpowered).
 - `poses`: named poses, each a signed voltage and a default duration.
   Poses have no ramp of their own: every move ramps at the motor's
   `slew_v_per_s`, in show control and in `calibrate.py` alike.
@@ -379,8 +392,10 @@ holds the latest command — a **value** (with arrival time) or a **pose**
   command sends it to rest at once.
 - Max hold: driven away from rest longer than `max_hold_s` → forced to
   rest until a rest command arrives or commands stop.
-- The slew limit applies to every change of drive; going to rest plays the
-  motor's rest pulse, then brake or coast.
+- The slew limit applies only to driving harder (a growing magnitude, or a
+  reversal of direction). Easing off is immediate, and so are going to rest
+  and the jump to the rest pulse: going to rest plays the motor's rest
+  pulse, then brake or coast.
 
 The network threads never touch a motor: the talk loop is the only owner of
 the hardware, so the existing watchdog and shutdown path cover everything.
@@ -396,7 +411,8 @@ on the hardware).
 ### Mouth mode
 
 - `live` (default): the mouth follows the voice (lip sync, as today);
-  mouth commands are ignored and logged (rate-limited).
+  mouth commands are refused: HTTP answers `409`, OSC ignores and logs them
+  (rate-limited).
 - `show`: the mouth follows the command board like the other motors; the
   voice still plays.
 - Switched at runtime by OSC `/jack/mouth/mode live|show` or
@@ -429,12 +445,14 @@ Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
 - `POST /<motor>` `{"value": 0.6}`; `POST /<motor>/pose`
   `{"name": "curl", "seconds": 2}` (seconds optional);
   `POST /<motor>/rest`; `POST /rest`; `POST /mouth/mode` `{"mode": "show"}`.
-- Bad input → `400`, unknown motor or pose → `404`, a mouth command while
-  the mouth is in `live` mode → `409`, a body over 4 KiB → `413`, each with a
-  one-line JSON error. Request logging is off (a held slider sends ~20
+- Bad input (including a bad `Content-Length`) → `400`, unknown motor,
+  pose or path → `404`, a mouth command while the mouth is in `live` mode →
+  `409`, a body over 4 KiB → `413`, an unexpected error → `500` (also logged
+  to stderr), each with a one-line JSON error. Request logging is off (a held slider sends ~20
   requests a second).
-- `GET /status`: mouth mode; per motor the current command, present
-  volts and whether max hold has tripped; Mumble connected or not.
+- `GET /status`: mouth mode; Mumble connected or not; per motor the
+  current command, present volts, whether max hold has tripped, whether it
+  is calibrated, whether its range is two-sided, and its pose names.
 - `GET /`: the control page — a slider per motor, pose buttons, the
   live/show switch and a status panel refreshed every second. A held
   slider resends its value about 20 times a second (dead-man); releasing
@@ -500,7 +518,16 @@ The app must come back on its own from any failure, without a human:
 
 Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
 `control_board.py`, `show_commands.py`, `osc_server.py`, `http_server.py`,
-`control_page.html`) are described in "Show control".
+`control_page.html`) are described in "Show control". Two more modules
+support them:
+
+- `motor_test/motor_driver.py` (domain, pure): `MotorDriver`, one per
+  motor, turns the commanded volts (or None for rest) into its drive each
+  20 ms tick: slew limit on driving harder, max-hold trip, rest pulse, then
+  `Rest("brake")` or `Rest("coast")`.
+- `motor_test/rate_limited_log.py`: `RateLimitedLog(print, interval_s,
+  clock)`, a callable that lets one line per key through per interval, so a
+  flood of bad OSC messages stays one journal line per kind per minute.
 
 - `motor_test/ramp.py` (domain, pure): waveforms as signed 12-bit duty
   counts (negative = backward). `ramp_profile(peak_volts, supply_volts,
@@ -523,7 +550,7 @@ Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
 - `motor_test/ports.py`: the `MotorOutput` protocol, with
   `drive(count)` (signed) and `stop()`.
 - `motor_test/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
-  the PWM chip, created once and shared by both motors. Register logic
+  the PWM chip, created once per HAT (`0x40`, `0x41`) and shared by that HAT's two motors. Register logic
   follows Waveshare's `PCA9685.py`, writing 12-bit counts directly
   (Waveshare's `setDutycycle` scales by 40 and never reaches the full
   4096). `set_off_count(channel, count)` rejects counts outside 0..4095.
@@ -583,18 +610,26 @@ Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
 - `motor_test/service_guard.py`: `app_is_running()`, shared by
   `calibrate.py` and `lipsync_wav.py`.
 - `motor_test/talk_loop.py` (application): `run_talk_loop`, taking the
-  sources, an `AudioSink`, the mouth motor, the idle motors, the settings,
-  the supply voltage, an `on_second` callback and an `until` check; always
-  brakes every motor and closes the sink on exit.
+  sources, an `AudioSink`, the motors by name, their profiles, the settings,
+  the `ControlBoard`, the supply voltage, an `on_second` callback and an
+  `until` check; always brakes every motor and closes the sink on exit.
 - `lipsync_wav.py`: composition root for the tuning tool (a `WavSource`
   in place of Mumble).
 - `main.py`: builds the `TalkSettings` with `talk_settings()` (defaults plus
   `JACK_<FIELD>` overrides from the environment, checked against the supply
-  before touching hardware), then one `Pca9685`, both motors, the ALSA sink and the
-  Mumble bot, installs a SIGTERM handler that raises `SystemExit` so the
-  loop's cleanup runs, sends `READY=1` after init, and runs the talk loop
-  with `on_second` the Mumble-aware watchdog callback (`WATCHDOG=1` while the
-  bot's thread lives, `SystemExit` once it has died). `run_profiles_loop` and
+  before touching hardware; the mouth's old volt variables are refused),
+  loads every motor's profile from `poses.toml` with `motor_profiles()`
+  (`POSES_PATHS`: the repo file, then `/etc/jack/poses.toml`), and reads the
+  ports, dead-man timeout and startup mouth mode with
+  `show_control_config()` (`JACK_OSC_PORT`, `JACK_HTTP_PORT`,
+  `JACK_CONTROL_TIMEOUT_S`, `JACK_MOUTH_MODE`). It builds the `ControlBoard`,
+  then both HATs and all four motors with `build_motors` (a HAT that does not
+  answer stops the app naming its address), the ALSA sink and the Mumble
+  bot, and starts the OSC (UDP) and HTTP (TCP) servers on `0.0.0.0`. It
+  installs a SIGTERM handler that raises `SystemExit` so the loop's cleanup
+  runs, sends `READY=1` after init, and runs the talk loop with `on_second`
+  the Mumble-aware watchdog callback (`WATCHDOG=1` while the bot's thread
+  lives, `SystemExit` once it has died). `run_profiles_loop` and
   `MOUTH_DEMO` are no longer used by `main.py`; they stay in the repo
   (Boss, 2026-09-28).
 - `speaking_cycle(rng)` and `demo_cycle()` remain in `main.py` (Boss, 2026-09-28) for showing the mechanism without audio; `main()` no longer uses them.
@@ -633,7 +668,8 @@ Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.demo_cycle` holds motor A at 0 V and plays the mouth demo
+  - `main.demo_cycle` holds motor A at 0 V (the retired demo; in the app
+    motor A is the hand, driven by show control) and plays the mouth demo
     (+341 ×5, 0 ×30, −683 ×10, 0 ×30, the 5-step ramp, −2048 ×10) over a
     4.5 s cycle, inside the 10 s watchdog with two cycles to spare.
   - `main.speaking_cycle` plays `random_phrase` on the mouth with motor A
@@ -660,6 +696,8 @@ Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
     motors braked on an exception.
   - `jack.service` runs the venv's Python and loads `/etc/jack/jack.env`;
     `jack-update.sh` re-runs pip only when `requirements-pi.txt` changed.
+- Dependencies for tests: `requirements-dev.txt` pins `pytest==9.1.1`,
+  `smbus2==0.4.3` and `python-osc==1.10.2`.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.
@@ -684,7 +722,8 @@ and are not tied to any login session or human user.
   `python3-opuslib` and `python3-protobuf` are used. Only pymumble (and,
   with show control, `python-osc`) comes
   from pip, pinned in `requirements-pi.txt` to the exact version or git
-  commit the spike proved, and installed with `--no-deps` (pymumble pins
+  commit the spike proved (`python-osc==1.10.2`, also pinned in
+  `requirements-dev.txt` for the tests), and installed with `--no-deps` (pymumble pins
   protobuf 3.20.3; apt's 3.21.12 is used instead, if the spike shows it
   works).
 - **`jack-update.service` + `jack-update.timer`:** runs as root every 60 s
