@@ -116,3 +116,52 @@ def test_a_motor_missing_from_every_file_is_an_error(tmp_path):
 
 def test_profile_helper_replaces_fields():
     assert profile("mouth", slew_v_per_s=1000.0).slew_v_per_s == 1000.0
+
+
+def test_a_bad_value_in_the_override_names_the_override_file(tmp_path):
+    base = write(tmp_path, all_motors())
+    override = write(tmp_path, "[hand]\nmax_v = 13.0\n", "pi.toml")
+    with pytest.raises(ValueError, match="max_v") as error:
+        load_profiles([base, override], SUPPLY)
+    assert str(override) in str(error.value)
+
+
+def test_a_bad_value_in_the_base_file_names_the_base_file(tmp_path):
+    base = write(tmp_path, all_motors().replace("max_v = 2.0", "max_v = 13.0", 1))
+    with pytest.raises(ValueError, match="max_v") as error:
+        load_profiles([base, tmp_path / "absent.toml"], SUPPLY)
+    assert str(base) in str(error.value)
+
+
+def test_a_bad_pose_names_the_file_that_set_it(tmp_path):
+    base = write(tmp_path, all_motors())
+    override = write(tmp_path, "[hand.poses]\ncurl = { volts = 20.0, seconds = 0.5 }\n", "pi.toml")
+    with pytest.raises(ValueError, match="curl") as error:
+        load_profiles([base, override], SUPPLY)
+    assert str(override) in str(error.value)
+
+
+def test_a_non_table_poses_value_is_rejected_naming_file_and_motor(tmp_path):
+    base = write(tmp_path, all_motors())
+    override = write(tmp_path, "[hand]\nposes = 3\n", "pi.toml")
+    with pytest.raises(ValueError, match="poses") as error:
+        load_profiles([base, override], SUPPLY)
+    assert str(override) in str(error.value)
+    assert "[hand]" in str(error.value)
+
+
+def test_a_missing_required_key_names_the_files_that_set_the_motor(tmp_path):
+    text = all_motors()
+    head, _, tail = text.rpartition("[elbow]")
+    base = write(tmp_path, head + "[elbow]" + tail.replace('rest = "brake"\n', "", 1))
+    with pytest.raises(ValueError, match="rest") as error:
+        load_profiles([base], SUPPLY)
+    assert str(base) in str(error.value)
+
+
+def test_float_sign_is_stored_as_an_int(tmp_path):
+    base = write(tmp_path, all_motors())
+    override = write(tmp_path, "[hand]\nsign = -1.0\n", "pi.toml")
+    sign = load_profiles([base, override], SUPPLY)["hand"].sign
+    assert sign == -1
+    assert isinstance(sign, int)
