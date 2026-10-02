@@ -14,6 +14,7 @@ from motor_test.poses import MotorProfile
 from motor_test.rate_limited_log import RateLimitedLog
 
 OSC_PREFIX = "/jack"
+MAX_LOGGED_CHARS = 200
 
 
 class CommandError(ValueError):
@@ -92,10 +93,17 @@ def handle_osc(
         command = osc_command(address, args, profiles)
         apply(command, board)
     except CommandError as error:
-        log(f"ignored {address}", f"Ignored OSC {address} {list(args)}: {error}")
+        # Keyed by status so a flood of varied bad addresses stays one line per kind.
+        log(f"ignored {error.status}", f"Ignored OSC {_clip(address)} {_clip(list(args))}: {_clip(error)}")
         return
     if isinstance(command, SetValue) and command.value != command.requested:
         log(f"clamped {command.motor}", f"Clamped OSC {address} {command.requested} to {command.value}")
+
+
+def _clip(value: object) -> str:
+    """Shorten text from the network so one packet can't fill the journal."""
+    text = str(value)
+    return text if len(text) <= MAX_LOGGED_CHARS else text[:MAX_LOGGED_CHARS] + "…"
 
 
 def _parts(route: str) -> list[str]:
@@ -161,6 +169,10 @@ def _number(params: dict, key: str) -> float:
     value = params[key]
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise CommandError(f"{key} must be a number, got {value!r}")
-    if not math.isfinite(value):
-        raise CommandError(f"{key} must be a finite number, got {value!r}")
-    return float(value)
+    try:
+        number = float(value)
+    except OverflowError:
+        number = math.inf
+    if not math.isfinite(number):
+        raise CommandError(f"{key} must be a finite number, got {_clip(value)}")
+    return number

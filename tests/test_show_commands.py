@@ -116,3 +116,29 @@ def test_handle_osc_applies_good_messages_and_logs_bad_ones_rate_limited():
     assert "Ignored OSC /jack/hand" in lines[0]
     assert "live mode" in lines[1]
     assert "Clamped OSC /jack/hand 3.0 to 1.0" in lines[2]
+
+
+def logging_handler():
+    lines = []
+    return lines, RateLimitedLog(lines.append, 60.0, FakeClock())
+
+
+def test_bad_addresses_of_one_kind_share_a_log_line():
+    lines, log = logging_handler()
+    handle_osc("/jack/x1", [1], PROFILES, board(), log)
+    handle_osc("/jack/x2", [1], PROFILES, board(), log)
+    assert len(lines) == 1
+    handle_osc("/jack/mouth", [0.5], PROFILES, board(), log)
+    assert len(lines) == 2
+
+
+def test_logged_address_is_truncated():
+    lines, log = logging_handler()
+    handle_osc("/jack/" + "x" * 494, [1], PROFILES, board(), log)
+    assert len(lines[0]) < 600 and "…" in lines[0]
+
+
+def test_integer_too_large_for_a_float_is_a_400():
+    with pytest.raises(CommandError) as error:
+        http_command("/hand", {"value": 10**400}, PROFILES)
+    assert error.value.status == 400
