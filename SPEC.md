@@ -345,8 +345,11 @@ file and entry. Per motor:
   `"coast"` (leads open), in case braking slows a spring return; plus an
   optional rest pulse `(volts, seconds)` played on the way to rest (the
   mouth's close pulse +0.5 V, 0.08 s, since it holds its pose unpowered).
-- `poses`: named poses, each a voltage, a default duration, and an optional
-  ramp time (as the mouth's open).
+- `poses`: named poses, each a signed voltage and a default duration.
+  Poses have no ramp of their own: every move ramps at the motor's
+  `slew_v_per_s`, in show control and in `calibrate.py` alike.
+- `max_hold_s` and a non-zero `rest_pulse_s` must be whole 20 ms ticks.
+  Unknown keys (typos) are rejected.
 
 The mouth's entry is the single source of its voltages for both lip sync
 and show mode (see the note under "Mouth control").
@@ -381,6 +384,14 @@ holds the latest command — a **value** (with arrival time) or a **pose**
 
 The network threads never touch a motor: the talk loop is the only owner of
 the hardware, so the existing watchdog and shutdown path cover everything.
+Per-motor tick logic (slew, max hold, rest pulse, brake/coast) lives in
+`motor_test/motor_driver.py` (pure). The loop writes a motor only when its
+drive changes, so a steady value or a resting motor costs no I2C traffic
+(a duty change is 4 single-byte I2C writes and a brake 12, so rewriting
+four motors every 20 ms tick would cost 16–48 writes per tick).
+Coasting needs `coast()` on `MotorOutput` (`Tb6612Motor`: duty 0, IN1 = IN2
+= low, which the TB6612FNG treats as stop with the leads open — to confirm
+on the hardware).
 
 ### Mouth mode
 
@@ -402,8 +413,10 @@ the hardware, so the existing watchdog and shutdown path cover everything.
 | `/jack/rest` | — | All motors to rest |
 | `/jack/mouth/mode` | `live` or `show` | Switch the mouth's source |
 
-Out-of-range values are clamped (first occurrence logged); unknown motors,
-poses or addresses are ignored and logged, rate-limited. No
+Out-of-range values are clamped (logged); unknown motors, poses or
+addresses, and mouth commands in `live` mode, are ignored and logged; all
+these log lines are rate-limited to one per kind per minute
+(`motor_test/rate_limited_log.py`). No
 authentication: anyone on the LAN may send commands (Boss, 2026-10-02).
 Library: `python-osc` (pip, pinned in `requirements-pi.txt` and
 `requirements-dev.txt`; no dependencies of its own, Python ≥ 3.10; not
@@ -416,8 +429,10 @@ Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
 - `POST /<motor>` `{"value": 0.6}`; `POST /<motor>/pose`
   `{"name": "curl", "seconds": 2}` (seconds optional);
   `POST /<motor>/rest`; `POST /rest`; `POST /mouth/mode` `{"mode": "show"}`.
-- Bad input → `400`, unknown motor or pose → `404`, each with a one-line
-  JSON error.
+- Bad input → `400`, unknown motor or pose → `404`, a mouth command while
+  the mouth is in `live` mode → `409`, a body over 4 KiB → `413`, each with a
+  one-line JSON error. Request logging is off (a held slider sends ~20
+  requests a second).
 - `GET /status`: mouth mode; per motor the current command, present
   volts and whether max hold has tripped; Mumble connected or not.
 - `GET /`: the control page — a slider per motor, pose buttons, the
