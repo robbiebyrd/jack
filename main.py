@@ -5,6 +5,7 @@ import math
 import os
 import random
 import signal
+import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import FrameType
@@ -13,6 +14,7 @@ from typing import NoReturn
 from smbus2 import SMBus
 
 from motor_test.alsa_sink import open_alsa_sink
+from motor_test.control_board import ControlBoard
 from motor_test.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
 from motor_test.mumble_voice import MumbleVoice, connect_mumble
 from motor_test.pca9685 import Pca9685
@@ -165,13 +167,14 @@ def main() -> None:
         sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
         print(f"Talking: Mumble voice on {ALSA_DEVICE}, mouth on motor B, {SUPPLY_VOLTS} V supply, motor A off")
         notify("READY=1")
+        motors = {"mouth": Tb6612Motor(chip, MOTOR_B), "hand": Tb6612Motor(chip, MOTOR_A)}
         run_talk_loop(
             [voice],
             sink,
-            Tb6612Motor(chip, MOTOR_B),
-            [Tb6612Motor(chip, MOTOR_A)],
+            motors,
+            profiles,
             settings,
-            profiles["mouth"],
+            ControlBoard(profiles, 0.5, "live", time.monotonic),
             SUPPLY_VOLTS,
             watchdog_while_connected(mumble_client),
         )

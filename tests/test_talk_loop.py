@@ -1,17 +1,18 @@
 import pytest
 
+from motor_test.control_board import ControlBoard
 from motor_test.pcm import TICKS_PER_SECOND, silence
 from motor_test.ramp import volts_to_count
 from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
 from tests.audio import constant_frame
-from tests.fakes import MotorThatFailsToStop, RecordingMotor, RecordingSink, ScriptedSource, drives, no_op
-from tests.profiles import profile
+from tests.fakes import FakeClock, MotorThatFailsToStop, RecordingMotor, RecordingSink, ScriptedSource, drives, no_op
+from tests.profiles import PROFILES, profile
 
 SUPPLY_VOLTS = 12.0
 LOUD = constant_frame(20000)  # about -4.3 dBFS: above full_db once the envelope has risen
-FAST = TalkSettings()
-FAST_MOUTH = profile("mouth", slew_v_per_s=1000.0)
+FAST = {**PROFILES, "mouth": profile("mouth", slew_v_per_s=1000.0), "hand": profile("hand", slew_v_per_s=1000.0),
+        "elbow": profile("elbow", slew_v_per_s=1000.0)}
 
 
 def stop_after(ticks):
@@ -28,30 +29,40 @@ def stop_after(ticks):
     return until
 
 
-def talk(sources, ticks, settings=FAST, sink=None, mouth=None, idle=None, on_second=no_op):
-    sink = sink if sink is not None else RecordingSink()
-    mouth = mouth if mouth is not None else RecordingMotor()
-    idle = idle if idle is not None else RecordingMotor()
-    run_talk_loop(sources, sink, mouth, [idle], settings, FAST_MOUTH, SUPPLY_VOLTS, on_second, stop_after(ticks))
-    return sink, mouth, idle
+def four_motors(**replacements):
+    motors = {name: RecordingMotor() for name in ("mouth", "hand", "pivot", "elbow")}
+    motors.update(replacements)
+    return motors
+
+
+def new_board(mode="live", profiles=FAST):
+    return ControlBoard(profiles, 0.5, mode, FakeClock())
+
+
+def talk(sources, ticks, *, board=None, motors=None, sink=None, profiles=FAST, settings=TalkSettings(), on_second=no_op):
+    sink = RecordingSink() if sink is None else sink
+    motors = four_motors() if motors is None else motors
+    board = new_board(profiles=profiles) if board is None else board
+    run_talk_loop(sources, sink, motors, profiles, settings, board, SUPPLY_VOLTS, on_second, stop_after(ticks))
+    return sink, motors, board
 
 
 def test_quiet_sources_play_silence_and_keep_the_mouth_closed():
-    sink, mouth, idle = talk([ScriptedSource([])], ticks=3)
+    sink, motors, _ = talk([ScriptedSource([])], ticks=3)
     assert sink.frames == [silence()] * 3
-    assert drives(mouth) == [0, 0, 0]
+    assert drives(motors["mouth"]) == [0]
 
 
-def test_idle_motor_holds_zero_volts_then_brakes():
-    _, _, idle = talk([ScriptedSource([])], ticks=3)
-    assert idle.calls == [("drive", 0), ("stop",)]
+def test_uncommanded_motors_brake_once_then_again_on_exit():
+    _, motors, _ = talk([ScriptedSource([])], ticks=3)
+    assert motors["hand"].calls == [("stop",), ("stop",)]
 
 
-def test_a_loud_voice_is_played_and_opens_the_mouth_fully():
-    sink, mouth, _ = talk([ScriptedSource([LOUD, LOUD])], ticks=2)
+def test_a_loud_voice_is_played_and_opens_the_mouth_fully_in_live_mode():
+    sink, motors, _ = talk([ScriptedSource([LOUD, LOUD])], ticks=2)
     assert sink.frames == [LOUD, LOUD]
-    assert drives(mouth)[0] < 0
-    assert drives(mouth)[1] == volts_to_count(-6.0, SUPPLY_VOLTS)
+    assert drives(motors["mouth"])[0] < 0
+    assert drives(motors["mouth"])[1] == volts_to_count(-6.0, SUPPLY_VOLTS)
 
 
 def test_sources_sounding_together_are_mixed():
@@ -60,10 +71,9 @@ def test_sources_sounding_together_are_mixed():
 
 
 def test_mouth_lead_delays_the_audio_but_not_the_mouth():
-    settings = TalkSettings(mouth_lead_ms=40.0)
-    sink, mouth, _ = talk([ScriptedSource([LOUD] * 3)], ticks=3, settings=settings)
+    sink, motors, _ = talk([ScriptedSource([LOUD] * 3)], ticks=3, settings=TalkSettings(mouth_lead_ms=40.0))
     assert sink.frames == [silence(), silence(), LOUD]
-    assert drives(mouth)[0] < 0
+    assert drives(motors["mouth"])[0] < 0
 
 
 @pytest.mark.parametrize("ticks, pings", [(TICKS_PER_SECOND - 1, 0), (TICKS_PER_SECOND, 1), (2 * TICKS_PER_SECOND, 2)])
@@ -73,19 +83,58 @@ def test_on_second_runs_once_per_second_of_audio(ticks, pings):
     assert len(calls) == pings
 
 
-def test_a_sound_card_failure_brakes_both_motors_and_closes_the_sink():
-    sink, mouth, idle = RecordingSink(fail_on_write=2), RecordingMotor(), RecordingMotor()
+def test_a_commanded_value_drives_its_motor_and_a_steady_value_is_written_once():
+    board = new_board()
+    board.set_value("hand", 1.0)
+    _, motors, _ = talk([ScriptedSource([])], ticks=5, board=board)
+    assert drives(motors["hand"]) == [volts_to_count(2.0, SUPPLY_VOLTS)]
+
+
+def test_a_pose_drives_its_volts():
+    board = new_board()
+    board.start_pose("elbow", "up")
+    _, motors, _ = talk([ScriptedSource([])], ticks=2, board=board)
+    assert drives(motors["elbow"]) == [volts_to_count(2.0, SUPPLY_VOLTS)]
+
+
+def test_show_mode_mouth_follows_the_board_not_the_voice():
+    board = new_board("show")
+    board.set_value("mouth", 1.0)
+    _, motors, _ = talk([ScriptedSource([LOUD, LOUD])], ticks=2, board=board)
+    assert drives(motors["mouth"]) == [volts_to_count(-6.0, SUPPLY_VOLTS)]
+
+
+def test_live_mode_mouth_ignores_the_board():
+    board = new_board("live")
+    board.set_value("mouth", 1.0)
+    _, motors, _ = talk([ScriptedSource([])], ticks=2, board=board)
+    assert drives(motors["mouth"]) == [0]
+
+
+def test_a_coast_profile_coasts_at_rest():
+    profiles = {**FAST, "hand": profile("hand", rest="coast")}
+    _, motors, _ = talk([ScriptedSource([])], ticks=2, profiles=profiles)
+    assert motors["hand"].calls[0] == ("coast",)
+
+
+def test_what_was_driven_is_reported_to_the_board():
+    board = new_board()
+    board.set_value("hand", 1.0)
+    talk([ScriptedSource([])], ticks=2, board=board)
+    assert board.status(False)["motors"]["hand"]["volts"] == 2.0
+
+
+def test_a_sound_card_failure_brakes_every_motor_and_closes_the_sink():
+    sink, motors = RecordingSink(fail_on_write=2), four_motors()
     with pytest.raises(OSError):
-        talk([ScriptedSource([LOUD] * 5)], ticks=5, sink=sink, mouth=mouth, idle=idle)
-    assert mouth.calls[-1] == ("stop",)
-    assert idle.calls[-1] == ("stop",)
+        talk([ScriptedSource([LOUD] * 5)], ticks=5, sink=sink, motors=motors)
+    assert all(motor.calls[-1] == ("stop",) for motor in motors.values())
     assert sink.closed
 
 
-def test_a_motor_failing_to_stop_still_stops_the_other_and_closes_the_sink():
-    sink, idle = RecordingSink(), RecordingMotor()
+def test_a_motor_failing_to_stop_still_stops_the_others_and_closes_the_sink():
+    sink, motors = RecordingSink(), four_motors(mouth=MotorThatFailsToStop())
     with pytest.raises(OSError):
-        talk([ScriptedSource([])], ticks=1, sink=sink, mouth=MotorThatFailsToStop(), idle=idle)
-    assert idle.calls[-1] == ("stop",)
+        talk([ScriptedSource([])], ticks=1, sink=sink, motors=motors)
+    assert all(motors[name].calls[-1] == ("stop",) for name in ("hand", "pivot", "elbow"))
     assert sink.closed
-

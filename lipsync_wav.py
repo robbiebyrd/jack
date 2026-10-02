@@ -10,12 +10,14 @@ the mouth's voltages are in poses.toml.
 import argparse
 import dataclasses
 import sys
+import time
 from collections.abc import Callable
 
 from smbus2 import SMBus
 
 from main import ALSA_DEVICE, ALSA_PERIODS, I2C_BUS, PCA9685_ADDRESS, POSES_PATHS, PWM_FREQ_HZ, SUPPLY_VOLTS
 from motor_test.alsa_sink import open_alsa_sink
+from motor_test.control_board import ControlBoard
 from motor_test.pca9685 import Pca9685
 from motor_test.pcm import TICKS_PER_SECOND
 from motor_test.poses import load_profiles
@@ -65,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         settings = settings_from_args(args)
-        mouth = load_profiles(POSES_PATHS, SUPPLY_VOLTS)["mouth"]
+        profiles = load_profiles(POSES_PATHS, SUPPLY_VOLTS)
         source = WavSource(args.wav)
     except (ValueError, OSError) as error:
         print(error, file=sys.stderr)
@@ -74,14 +76,15 @@ def main(argv: list[str] | None = None) -> int:
     with SMBus(I2C_BUS) as bus:
         chip = Pca9685(bus, PCA9685_ADDRESS, PWM_FREQ_HZ)
         sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
+        motors = {"mouth": Tb6612Motor(chip, MOTOR_B), "hand": Tb6612Motor(chip, MOTOR_A)}
         try:
             run_talk_loop(
                 [source],
                 sink,
-                Tb6612Motor(chip, MOTOR_B),
-                [Tb6612Motor(chip, MOTOR_A)],
+                motors,
+                profiles,
                 settings,
-                mouth,
+                ControlBoard(profiles, 0.5, "live", time.monotonic),
                 SUPPLY_VOLTS,
                 lambda: None,
                 after_tail(source, TAIL_TICKS),
