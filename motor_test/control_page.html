@@ -40,32 +40,51 @@ async function post(path, body) {
   }
 }
 
+const timers = new Map();
+
+function releaseAll() {
+  for (const [name, timer] of timers) {
+    clearInterval(timer);
+    document.getElementById(name + "-slider").value = 0;
+    post("/" + name + "/rest");
+  }
+  timers.clear();
+}
+
+function element(tag, props = {}, ...children) {
+  const el = Object.assign(document.createElement(tag), props);
+  el.append(...children);
+  return el;
+}
+
 function buildMotor(name, info) {
-  const card = document.createElement("div");
-  card.className = "motor";
-  const low = info.two_sided ? -1 : 0;
-  card.innerHTML = `<h2><span>${name}${info.calibrated ? "" : ' <span class="muted">(uncalibrated)</span>'}</span>` +
-    `<span class="muted" id="${name}-state"></span></h2>` +
-    `<input type="range" id="${name}-slider" min="${low}" max="1" step="0.01" value="0" aria-label="${name}">` +
-    `<div id="${name}-poses"></div><button id="${name}-rest">rest</button>`;
-  motorsEl.appendChild(card);
-  const slider = card.querySelector(`#${name}-slider`);
-  let timer = null;
+  const title = element("span", {}, name);
+  if (!info.calibrated) title.append(" ", element("span", { className: "muted", textContent: "(uncalibrated)" }));
+  const slider = element("input", { type: "range", id: name + "-slider", min: info.two_sided ? -1 : 0, max: 1, step: 0.01, value: 0 });
+  slider.setAttribute("aria-label", name);
+  const poses = element("div", { id: name + "-poses" });
+  const rest = element("button", { id: name + "-rest", textContent: "rest" });
+  motorsEl.appendChild(element("div", { className: "motor" },
+    element("h2", {}, title, element("span", { className: "muted", id: name + "-state" })), slider, poses, rest));
   const send = () => post("/" + name, { value: Number(slider.value) });
-  const release = () => { if (timer) { clearInterval(timer); timer = null; } slider.value = 0; post("/" + name + "/rest"); };
-  slider.addEventListener("pointerdown", () => { send(); timer = setInterval(send, RESEND_MS); });
+  slider.addEventListener("pointerdown", (event) => {
+    slider.setPointerCapture(event.pointerId);
+    send();
+    clearInterval(timers.get(name));
+    timers.set(name, setInterval(send, RESEND_MS));
+  });
   slider.addEventListener("input", send);
-  slider.addEventListener("pointerup", release);
-  slider.addEventListener("pointercancel", release);
-  const poses = card.querySelector(`#${name}-poses`);
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) slider.addEventListener(type, releaseAll);
   for (const pose of info.poses) {
-    const button = document.createElement("button");
-    button.textContent = pose;
+    const button = element("button", { textContent: pose });
     button.addEventListener("click", () => post("/" + name + "/pose", { name: pose }));
     poses.appendChild(button);
   }
-  card.querySelector(`#${name}-rest`).addEventListener("click", () => post("/" + name + "/rest"));
+  rest.addEventListener("click", () => post("/" + name + "/rest"));
 }
+
+window.addEventListener("blur", releaseAll);
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseAll(); });
 
 function show(status) {
   if (!built) {

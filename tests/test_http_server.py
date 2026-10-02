@@ -1,3 +1,4 @@
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -36,6 +37,8 @@ def test_control_page_is_served(jack):
     status, kind, body = request(base, "/")
     assert status == 200 and kind.startswith("text/html")
     assert b"<title>" in body and b"/status" in body
+    assert b"lostpointercapture" in body and b"visibilitychange" in body
+    assert b"innerHTML" not in body
 
 
 def test_status_is_json(jack):
@@ -86,3 +89,35 @@ def test_errors_are_json_with_a_status(jack, path, body, raw, status):
 def test_unknown_get_is_404(jack):
     _, base = jack
     assert request(base, "/nope")[0] == 404
+
+
+@pytest.mark.parametrize("length", ["abc", "-5"])
+def test_bad_content_length_is_400(jack, length):
+    _, base = jack
+    connection = http.client.HTTPConnection(base.removeprefix("http://"), timeout=2)
+    connection.putrequest("POST", "/hand")
+    connection.putheader("Content-Length", length)
+    connection.endheaders()
+    response = connection.getresponse()
+    assert response.status == 400
+    assert "Content-Length" in json.loads(response.read())["error"]
+    connection.close()
+
+
+class BrokenBoard:
+    def status(self, mumble_connected):
+        raise RuntimeError("boom")
+
+
+def test_unexpected_error_is_a_json_500_and_the_server_keeps_serving(capsys):
+    server = start_http_server("127.0.0.1", 0, BrokenBoard(), PROFILES, lambda: True)
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        code, kind, payload = request(base, "/status")
+        assert code == 500 and kind == "application/json"
+        assert "RuntimeError" in json.loads(payload)["error"]
+        assert request(base, "/")[0] == 200
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert "RuntimeError" in capsys.readouterr().err

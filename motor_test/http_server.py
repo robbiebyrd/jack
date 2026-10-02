@@ -5,6 +5,7 @@ See "HTTP" in SPEC.md. Request logging is off: a held slider on the control page
 """
 
 import json
+import sys
 import threading
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -30,6 +31,12 @@ def start_http_server(
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            self._respond(self._get)
+
+        def do_POST(self) -> None:
+            self._respond(self._post)
+
+        def _get(self) -> None:
             if self.path == "/":
                 self._send(200, "text/html; charset=utf-8", page)
             elif self.path == "/status":
@@ -37,16 +44,32 @@ def start_http_server(
             else:
                 self._json(404, {"error": f"no page at {self.path}"})
 
-        def do_POST(self) -> None:
-            try:
-                apply(http_command(self.path, self._body(), profiles), board)
-            except CommandError as error:
-                self._json(error.status, {"error": str(error)})
-                return
+        def _post(self) -> None:
+            apply(http_command(self.path, self._body(), profiles), board)
             self._json(200, {"ok": True})
 
+        def _respond(self, handle: Callable[[], None]) -> None:
+            """Turn any failure into a JSON error so the connection is never dropped."""
+            try:
+                handle()
+            except CommandError as error:
+                self._json(error.status, {"error": str(error)})
+            except Exception as error:
+                message = f"internal error: {type(error).__name__}: {error}".replace("\n", " ")
+                print(f"http: {self.command} {self.path}: {message}", file=sys.stderr)
+                self._json(500, {"error": message})
+
+        def _content_length(self) -> int:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = -1
+            if length < 0:
+                raise CommandError("Content-Length must be a non-negative integer")
+            return length
+
         def _body(self) -> dict:
-            length = int(self.headers.get("Content-Length") or 0)
+            length = self._content_length()
             if length > MAX_BODY_BYTES:
                 raise CommandError(f"request body over {MAX_BODY_BYTES} bytes", 413)
             raw = self.rfile.read(length) if length else b""
