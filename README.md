@@ -140,8 +140,8 @@ the controller's firewall or NAT usually lets through. Set `JACK_OSC_REPLY_PORT`
 different port than it sends from); a port argument to `/jack/subscribe` overrides both. With
 either, the controller machine must allow inbound UDP on that port.
 
-Port arguments must be OSC ints (type `i`). A float port, which some controllers send for every
-number by default, is rejected with a logged "Ignored OSC … port must be an integer" and no
+Port arguments are OSC ints, or whole-number floats (`21601.0` means 21601), which is what
+TouchOSC sends. A fractional or out-of-range port is rejected with a logged "Ignored OSC … " and no
 feedback. `/jack/unsubscribe` must carry the same port argument as the `/jack/subscribe` it
 undoes (or none, if none was used), otherwise it silently does nothing. OSC is UDP only, no TCP.
 
@@ -151,9 +151,11 @@ renewing and once a second after that, and in between only the ones that changed
 
 | State message | Value |
 |---|---|
+| `/jack/<motor>` | float, the motor's current value command (0 at rest or during a pose) |
 | `/jack/<motor>/volts` | float, the volts Jack last drove |
 | `/jack/<motor>/max_hold` | int 0 or 1, whether the max hold tripped |
 | `/jack/mouth/mode` | string, `live` or `show` |
+| `/jack/mouth/mode/show` | float, 1.0 in `show`, 0.0 in `live` |
 | `/jack/mumble` | int 0 or 1, whether Mumble is connected |
 
 Subscribe from a script and print what arrives (`pip install python-osc`; here the script listens
@@ -176,6 +178,34 @@ while True:
     client.send_message("/jack/subscribe", 9001)  # renew well inside 60 s
     time.sleep(30)
 ```
+
+### TouchOSC
+
+Jack accepts what TouchOSC sends without scripting in the layout. This section is based on
+general TouchOSC behaviour (buttons send a number, faders send floats, controls update when a
+message arrives on their own address). It has not been tested against a specific TouchOSC
+version, so check it against your layout.
+
+- **Connection:** host `10.10.0.54`, send port `9000`, receive port your choice (for example
+  `21601`).
+- **Subscribe button:** send `/jack/subscribe` with your receive port as its value (int or whole
+  float), pressed at least every 60 s to keep the subscription alive. Or set
+  `JACK_OSC_REPLY_PORT` (see above) and send no value. A press arrives as a number, so the
+  value, not the button, carries the port.
+- **Faders:** `/jack/hand`, `/jack/elbow` and `/jack/mouth` use 0 to 1. `/jack/pivot` uses -1 to
+  1, so set that fader's range to -1...1. A held fader keeps resending, which is what holds the
+  value; releasing it lets the motor rest after 0.5 s. `/jack/mouth` only works in `show` mode.
+- **Buttons:** `/jack/rest`, `/jack/<motor>/rest` and `/jack/<motor>/pose/<name>` (for example
+  `/jack/elbow/pose/up`) act on press (a non-zero number) and ignore release (0). The pose plays
+  for its default duration; an unknown pose is logged and ignored. The same press/release rule
+  applies to `/jack/ping` and `/jack/status`.
+- **Mouth mode toggle:** a toggle button on `/jack/mouth/mode/show`: on is `show`, off is
+  `live`. It must not be a momentary button, because its release (0) switches back to `live`.
+  `/jack/mouth/mode` also accepts a number the same way.
+- **Feedback:** point each fader at its own address, `/jack/<motor>`. It follows what Jack is
+  doing, so it drops to 0 when Jack rests the motor (the dead-man timeout, or a rest button). The
+  mode toggle's address, `/jack/mouth/mode/show`, receives 1.0 or 0.0, so it shows the real
+  mode. `/jack/<motor>/volts` and `/jack/<motor>/max_hold` can drive labels and LEDs.
 
 ### HTTP
 
