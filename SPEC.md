@@ -448,6 +448,34 @@ timetags are ignored (`Dispatcher(strict_timing=False)`): every message
 acts on arrival, so a future timetag can't hold a thread asleep; request
 threads are daemon threads so they never keep the process from exiting.
 
+### OSC replies and feedback (designed with Boss, 2026-10-02)
+
+Jack answers and reports state over OSC, as well as taking commands.
+
+| You send (UDP 9000) | Jack does |
+|---|---|
+| `/jack/ping` | Replies `/jack/pong` (no arguments) |
+| `/jack/status` | Replies once with the full state (below) |
+| `/jack/subscribe` | Optional int port. Pushes feedback to the sender's IP at that port, or at the reply port. A subscription lasts 60 s; resend to keep it. |
+| `/jack/unsubscribe` | Optional int port. Stops pushing to the sender's IP at that port, or at the reply port. |
+
+- **Reply port:** the sender's IP, at `JACK_OSC_REPLY_PORT` from `jack.env` if set (1–65535), otherwise the sender's source port. This is needed because some apps send from one port and listen on another (Boss's app sent from 9000 and listened on 21601).
+- **State messages,** for the status reply and for feedback:
+  - `/jack/<motor>/volts` (float: the volts the talk loop last drove)
+  - `/jack/<motor>/max_hold` (int: 1 while max hold has tripped)
+  - `/jack/mouth/mode` (string: `live` or `show`)
+  - `/jack/mumble` (int: 1 when connected)
+- **Feedback timing:** every 20 ms, each subscriber gets the messages whose value changed since the last check. Each also gets the full set once a second, and at once when it subscribes or renews, so lost UDP packets heal and a new subscriber is up to date immediately.
+- **Limits:**
+  - At most 8 subscribers. A 9th subscription is refused and logged (rate-limited); existing subscribers keep theirs.
+  - A subscriber that hasn't renewed within 60 s is dropped.
+  - A send error to one subscriber is logged (rate-limited) and doesn't stop the others.
+- **Structure:**
+  - `motor_test/osc_feedback.py` (pure, injected clock) turns a ControlBoard status into state messages, detects changes per subscriber, and keeps the subscriber list (expiry, cap).
+  - A daemon "osc-feedback" thread in `motor_test/osc_server.py` reads the board every 20 ms and sends. The talk loop never does network I/O, so a slow network can't stall the motors.
+  - The ping, status, subscribe and unsubscribe routes are parsed in `show_commands.py` like every other command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
+- **Not provided:** OSC over TCP, authentication, and feedback over HTTP (HTTP has `/status`).
+
 ### HTTP (TCP, default port 8080, `JACK_HTTP_PORT`)
 
 Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
