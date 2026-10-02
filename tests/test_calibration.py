@@ -2,6 +2,7 @@ import pytest
 
 from motor_test.calibration import MAX_MOVE_S, parse_command, pose_segments, run_calibration
 from motor_test.mouth import hold, ramp
+from motor_test.poses import Pose
 from tests.fakes import RecordingMotor, drives
 from tests.profiles import MOUTH, profile
 
@@ -40,8 +41,8 @@ def test_parses_volts_and_seconds_as_a_hold():
 
 
 def test_a_pose_name_ramps_at_the_motors_slew_then_holds_for_its_default_seconds():
-    # mouth open: -6 V at 48 V/s = 0.125 s, rounded to whole 0.05 s steps = 0.1 s.
-    assert parse_command("open", SUPPLY, MOUTH, STEP_S) == (ramp(0.0, -6.0, 0.1), hold(-6.0, 0.5))
+    # mouth open: -6 V at 48 V/s = 0.125 s, rounded up to whole 0.05 s steps = 0.15 s.
+    assert parse_command("open", SUPPLY, MOUTH, STEP_S) == (ramp(0.0, -6.0, 3 * STEP_S), hold(-6.0, 0.5))
 
 
 def test_a_pose_name_with_seconds_holds_that_long():
@@ -50,6 +51,11 @@ def test_a_pose_name_with_seconds_holds_that_long():
 
 def test_pose_segments_ramp_at_least_one_step():
     assert pose_segments(MOUTH.poses["close"], 0.25, 48.0, STEP_S) == (ramp(0.0, 1.0, 0.05), hold(1.0, 0.25))
+
+
+def test_pose_segments_ramp_an_exact_multiple_of_steps_without_gaining_one():
+    # 2.4 V at 24 V/s = 0.1 s = exactly 2 steps (floating point gives 2.0000000000000004).
+    assert pose_segments(Pose(2.4, 0.5), 0.5, 24.0, STEP_S) == (ramp(0.0, 2.4, 0.1), hold(2.4, 0.5))
 
 
 def test_poses_come_from_the_motors_profile():
