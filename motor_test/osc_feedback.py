@@ -19,13 +19,20 @@ FULL_REFRESH_S = 1.0
 
 
 def state_messages(status: Mapping) -> list[Message]:
-    """The state messages for a ControlBoard.status() snapshot, in a fixed order."""
+    """The state messages for a ControlBoard.status() snapshot, in a fixed order.
+
+    `/jack/<motor>` mirrors the fader value: the current value command, 0 at rest or during a pose.
+    `/jack/mouth/mode/show` is 1.0 in show mode and 0.0 in live, for a TouchOSC toggle.
+    """
     messages: list[Message] = []
     for name in MOTOR_NAMES:
         motor = status["motors"][name]
+        command = motor.get("command") or {}
+        messages.append((f"/jack/{name}", [float(command.get("value", 0.0))]))
         messages.append((f"/jack/{name}/volts", [float(motor["volts"])]))
         messages.append((f"/jack/{name}/max_hold", [int(bool(motor["max_hold_tripped"]))]))
     messages.append(("/jack/mouth/mode", [status["mouth_mode"]]))
+    messages.append(("/jack/mouth/mode/show", [1.0 if status["mouth_mode"] == "show" else 0.0]))
     messages.append(("/jack/mumble", [int(bool(status["mumble_connected"]))]))
     return messages
 

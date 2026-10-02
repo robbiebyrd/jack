@@ -5,20 +5,37 @@ A = ("10.10.0.22", 21601)
 B = ("10.10.0.30", 9001)
 
 
-def status(hand_volts=0.0, tripped=False, mode="live", mumble=True):
-    motors = {name: {"volts": 0.0, "max_hold_tripped": False} for name in ("mouth", "hand", "pivot", "elbow")}
-    motors["hand"] = {"volts": hand_volts, "max_hold_tripped": tripped}
+def status(hand_volts=0.0, tripped=False, mode="live", mumble=True, hand_command=None):
+    motors = {name: {"volts": 0.0, "max_hold_tripped": False, "command": None} for name in ("mouth", "hand", "pivot", "elbow")}
+    motors["hand"] = {"volts": hand_volts, "max_hold_tripped": tripped, "command": hand_command}
     return {"mouth_mode": mode, "mumble_connected": mumble, "motors": motors}
 
 
 def test_state_messages_in_order_with_osc_types():
-    assert state_messages(status(hand_volts=1.5, tripped=True, mode="show", mumble=False)) == [
-        ("/jack/mouth/volts", [0.0]), ("/jack/mouth/max_hold", [0]),
-        ("/jack/hand/volts", [1.5]), ("/jack/hand/max_hold", [1]),
-        ("/jack/pivot/volts", [0.0]), ("/jack/pivot/max_hold", [0]),
-        ("/jack/elbow/volts", [0.0]), ("/jack/elbow/max_hold", [0]),
-        ("/jack/mouth/mode", ["show"]), ("/jack/mumble", [0]),
+    assert state_messages(status(hand_volts=1.5, tripped=True, mode="show", mumble=False,
+                                 hand_command={"value": 0.75, "age_s": 0.1})) == [
+        ("/jack/mouth", [0.0]), ("/jack/mouth/volts", [0.0]), ("/jack/mouth/max_hold", [0]),
+        ("/jack/hand", [0.75]), ("/jack/hand/volts", [1.5]), ("/jack/hand/max_hold", [1]),
+        ("/jack/pivot", [0.0]), ("/jack/pivot/volts", [0.0]), ("/jack/pivot/max_hold", [0]),
+        ("/jack/elbow", [0.0]), ("/jack/elbow/volts", [0.0]), ("/jack/elbow/max_hold", [0]),
+        ("/jack/mouth/mode", ["show"]), ("/jack/mouth/mode/show", [1.0]), ("/jack/mumble", [0]),
     ]
+
+
+def test_a_pose_or_rest_reports_zero_on_the_fader_address():
+    posing = state_messages(status(hand_command={"pose": "curl", "seconds_left": 0.3}))
+    resting = state_messages(status(hand_command=None))
+    assert ("/jack/hand", [0.0]) in posing
+    assert ("/jack/hand", [0.0]) in resting
+    assert ("/jack/mouth/mode/show", [0.0]) in resting
+
+
+def test_a_status_without_command_reports_zero_on_the_fader_address():
+    snapshot = status()
+    for motor in snapshot["motors"].values():
+        del motor["command"]
+    messages = state_messages(snapshot)
+    assert all((f"/jack/{name}", [0.0]) in messages for name in ("mouth", "hand", "pivot", "elbow"))
 
 
 def test_a_new_subscriber_gets_the_full_set_then_only_changes():
