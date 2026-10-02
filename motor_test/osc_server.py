@@ -10,7 +10,12 @@ from pythonosc.osc_server import ThreadingOSCUDPServer
 def start_osc_server(host: str, port: int, handle: Callable[[str, list], None]) -> ThreadingOSCUDPServer:
     """Serve OSC on a daemon thread, passing every message's address and arguments to `handle`."""
     dispatcher = Dispatcher()
-    dispatcher.set_default_handler(lambda address, *args: handle(address, list(args)))
+
+    def deliver(address: str, *args) -> None:
+        # python-osc replies to the sender with any non-None handler return value.
+        handle(address, list(args))
+
+    dispatcher.set_default_handler(deliver)
     server = ThreadingOSCUDPServer((host, port), dispatcher)
     threading.Thread(target=server.serve_forever, name="osc", daemon=True).start()
     return server
