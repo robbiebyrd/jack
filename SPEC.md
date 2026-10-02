@@ -12,6 +12,11 @@ Next, Jack talks: Boss speaks into a Mumble client on a computer on the
 same LAN, Jack plays the voice from its speaker, and the animatronic's
 mouth (motor B) moves in sync with it (see "Talking").
 
+Next, show control: a second HAT adds three motors (hand, arm pivot,
+elbow), and an HTTP and an OSC server let an external show controller
+command all four motors, with the mouth switchable between following the
+live voice and following commands (see "Show control").
+
 ## Hardware facts
 
 Sources: Waveshare wiki (https://www.waveshare.com/wiki/Motor_Driver_HAT)
@@ -25,6 +30,12 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 - "Forward" in Waveshare's sample: IN1 = 0, IN2 = 1.
 - Sample code PWM frequency: 50 Hz (wiki range: 40–1000 Hz).
 - VIN supply on this build: **12 V**.
+- **Second HAT (added 2026-10-02):** same board, stacked, VIN bridged from
+  the first HAT's 12 V. Boss soldered the pad labelled "A4", but a
+  read-only I2C scan shows it answering at **`0x41`** (power-on MODE1
+  `0x11`), i.e. the pad acts as A0 (A4 would give `0x50`; Waveshare:
+  address = `0x40` + bridged pads, A0 = 1 … A4 = 16). `0x41` is used. Every
+  PCA9685 also answers the All Call address `0x70`; the app never uses it.
 - Output voltage is PWM-switched VIN. Average voltage across the motor
   terminals ≈ VIN × duty (minus a small driver drop).
 
@@ -85,7 +96,8 @@ prefer the closed and relaxed-open poses and keep fully open short.
 
 ## Calibration tool (`calibrate.py`)
 
-For finding mouth positions interactively on the Pi, without a commit per try:
+For finding mouth positions interactively on the Pi, without a commit per try
+(show control extends it to every motor: see "Calibration for every motor"):
 
 - Stop the app first (`sudo systemctl stop jack`); the tool refuses to run
   while `jack.service` is active, since both would drive the same chip.
@@ -172,7 +184,9 @@ One loop in `main.py`'s process, **paced by the sound card**: each tick
 takes the next 20 ms frame of voice from a queue (or 20 ms of silence if
 none arrived), writes it to ALSA (the blocking write is the clock),
 updates the envelope, computes the mouth voltage and drives motor B.
-Motor A holds 0 V.
+Motor A holds 0 V. With show control (see "Show control") the same tick
+also drives the hand, pivot and elbow from the command board, and in
+`show` mode the mouth too.
 
 - **Sources in:** the loop doesn't know where audio comes from. Each
   `VoiceSource` (the Mumble bot; in the tuning tool, a WAV file) puts
@@ -277,6 +291,159 @@ would drive the chip and the sound card), using the same check as
 | pymumble's thread dies (e.g. the server rejects the password) | The next once-a-second watchdog check sees it and exits; systemd restarts Jack after 5 s and it retries. |
 | `mumble-server` crashes | Its own unit restarts it; Jack sees a disconnect. |
 
+## Show control
+
+Designed with Boss, 2026-10-02. An external show controller (QLab, a
+lighting desk, TouchDesigner, a script…) commands Jack's four motors over
+OSC or HTTP. Voice audio keeps playing in every mode; only the mouth's
+source of movement switches.
+
+### Motors
+
+| Name | Board | Channel | Rest | Continuous range |
+|---|---|---|---|---|
+| `mouth` | `0x40` | B | closed | 0.0 … 1.0 (open) |
+| `hand` | `0x40` | A | outstretched | 0.0 … 1.0 (curled inward) |
+| `pivot` | `0x41` | A | centred | −1.0 (left) … 0.0 … +1.0 (right) |
+| `elbow` | `0x41` | B | 90° down | 0.0 … 1.0 (up, towards 30°) |
+
+- `motor_test/motors.py` (pure) is the registry: name, board address,
+  channel, and whether the range is one-sided or two-sided (pivot).
+- Boss wires the new motors to these channels. Nothing is wired yet
+  (2026-10-02); hand, pivot and elbow are uncalibrated.
+- Both boards are required: if either fails at startup the app exits with a
+  clear message and systemd keeps retrying (no silent degraded mode).
+- Every motor starts braked, and every exit brakes all four
+  (`attempt_all`).
+
+### Poses and per-motor settings (`poses.toml`)
+
+`poses.toml` in the repo holds the defaults; `/etc/jack/poses.toml` on the
+Pi, if present, overrides any entry. Read at startup (`tomllib`, standard
+library); an invalid file stops the app with a one-line message naming the
+file and entry. Per motor:
+
+- `range`: the magnitude in volts that 1.0 maps to, the volts at the low
+  end (just past rest), and the sign of "positive" (for the pivot: the
+  sign of "right"; left is the opposite).
+- `slew_v_per_s`: how fast the drive may grow (all motors, as the mouth).
+- `max_hold_s`: longest continuous drive away from rest before the motor
+  is forced to rest (stall protection).
+- `rest`: `"brake"` (short brake, the default and today's behaviour) or
+  `"coast"` (leads open), in case braking slows a spring return; plus an
+  optional rest pulse `(volts, seconds)` played on the way to rest (the
+  mouth's close pulse +0.5 V, 0.08 s, since it holds its pose unpowered).
+- `poses`: named poses, each a voltage, a default duration, and an optional
+  ramp time (as the mouth's open).
+
+Values: the mouth's come from its calibration and lip-sync tuning
+(open range 1–6 V, close pulse +0.5 V/0.08 s, slew 48 V/s, poses
+`close`, `relax`, `open`). Hand (`curl`), pivot (`left`, `right`) and elbow
+(`up`) start as **placeholders, marked uncalibrated in the file**: 2 V,
+0.5 s poses, 1 s max hold, 24 V/s slew, positive sign. Boss replaces them
+after measuring each motor with `calibrate.py`. Volts beyond the 12 V
+supply are rejected.
+
+### Command board (`motor_test/control_board.py`)
+
+Thread-safe; the OSC and HTTP threads write, the talk loop reads once per
+20 ms tick. The clock is injected (tests need no sleeping). Per motor it
+holds the latest command — a **value** (with arrival time) or a **pose**
+(name, start time, duration) — and answers "what voltage now?":
+
+- A value holds while new values keep arriving; after
+  `control_timeout_s` (default 0.5 s, `JACK_CONTROL_TIMEOUT_S`) with none,
+  the motor goes to rest (dead-man: covers a crashed controller or a
+  dropped network).
+- A pose plays for its default duration or the one sent with the command,
+  then the motor goes to rest.
+- A new command for a motor replaces the previous one at once; a rest
+  command sends it to rest at once.
+- Max hold: driven away from rest longer than `max_hold_s` → forced to
+  rest until a rest command arrives or commands stop.
+- The slew limit applies to every change of drive; going to rest plays the
+  motor's rest pulse, then brake or coast.
+
+The network threads never touch a motor: the talk loop is the only owner of
+the hardware, so the existing watchdog and shutdown path cover everything.
+
+### Mouth mode
+
+- `live` (default): the mouth follows the voice (lip sync, as today);
+  mouth commands are ignored and logged (rate-limited).
+- `show`: the mouth follows the command board like the other motors; the
+  voice still plays.
+- Switched at runtime by OSC `/jack/mouth/mode live|show` or
+  `POST /mouth/mode`. The startup mode comes from `JACK_MOUTH_MODE` in
+  `jack.env` (`live` or `show`); a restart returns to it (not persisted).
+
+### OSC (UDP, default port 9000, `JACK_OSC_PORT`)
+
+| Address | Arguments | Effect |
+|---|---|---|
+| `/jack/<motor>` | float | Continuous value (0…1; pivot −1…1) |
+| `/jack/<motor>/pose` | string, optional float | Named pose, optional duration (s) |
+| `/jack/<motor>/rest` | — | That motor to rest |
+| `/jack/rest` | — | All motors to rest |
+| `/jack/mouth/mode` | `live` or `show` | Switch the mouth's source |
+
+Out-of-range values are clamped (first occurrence logged); unknown motors,
+poses or addresses are ignored and logged, rate-limited. No
+authentication: anyone on the LAN may send commands (Boss, 2026-10-02).
+Library: `python-osc` (pip, pinned in `requirements-pi.txt` and
+`requirements-dev.txt`; no dependencies of its own, Python ≥ 3.10; not
+packaged by Debian), imported only in `motor_test/osc_server.py`.
+
+### HTTP (TCP, default port 8080, `JACK_HTTP_PORT`)
+
+Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
+
+- `POST /<motor>` `{"value": 0.6}`; `POST /<motor>/pose`
+  `{"name": "curl", "seconds": 2}` (seconds optional);
+  `POST /<motor>/rest`; `POST /rest`; `POST /mouth/mode` `{"mode": "show"}`.
+- Bad input → `400`, unknown motor or pose → `404`, each with a one-line
+  JSON error.
+- `GET /status`: mouth mode; per motor the current command, present
+  volts and whether max hold has tripped; Mumble connected or not.
+- `GET /`: the control page — a slider per motor, pose buttons, the
+  live/show switch and a status panel refreshed every second. A held
+  slider resends its value about 20 times a second (dead-man); releasing
+  it lets the motor rest. One self-contained HTML file
+  (`motor_test/control_page.html`), no external scripts.
+- On macOS 15+, the browser may need Local Network permission to reach
+  `http://10.10.0.54:8080`, as the Mumble client did.
+
+Both protocols go through one pure translation module,
+`motor_test/show_commands.py`, which turns an OSC address + arguments or an
+HTTP path + JSON body into board commands; all validation and clamping
+live there, so OSC and HTTP behave identically.
+
+### Calibration for every motor
+
+`calibrate.py <motor>` (e.g. `calibrate.py elbow`) keeps today's
+`<volts> <seconds>` lines and safety limits for any of the four motors; its
+named shortcuts are that motor's poses from `poses.toml`. It still refuses
+to run while `jack.service` is active.
+
+### Board check (one-off, not product code)
+
+With nothing wired to the second HAT, drive each of its channels in turn
+at a known voltage while Boss reads MA1/MA2 and MB1/MB2 with a meter.
+
+### Testing
+
+- Mac (pytest): registry and `poses.toml` loading (missing fields, unknown
+  motor, bad rest mode, volts beyond supply rejected); command board timing
+  (dead-man, pose duration and override, replacement, max hold trip and
+  reset, rest pulse, slew); translation of every OSC address and HTTP
+  route incl. clamping and unknown names; HTTP against a real server on a
+  localhost port; OSC end to end with real UDP packets on localhost; talk
+  loop driving all four motors from the board, the mode switch, and all
+  four braked on exit.
+- Pi: the board check; `calibrate.py` per new motor to replace the
+  placeholders; OSC from Boss's show controller and the control page in a
+  browser; the recovery checks again with four motors.
+
 ## Self-recovery
 
 The app must come back on its own from any failure, without a human:
@@ -300,6 +467,10 @@ The app must come back on its own from any failure, without a human:
   push is the next push.
 
 ## Code structure (hexagonal)
+
+Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
+`control_board.py`, `show_commands.py`, `osc_server.py`, `http_server.py`,
+`control_page.html`) are described in "Show control".
 
 - `motor_test/ramp.py` (domain, pure): waveforms as signed 12-bit duty
   counts (negative = backward). `ramp_profile(peak_volts, supply_volts,
@@ -480,7 +651,8 @@ and are not tied to any login session or human user.
   Self-recovery settings as above; `WantedBy=multi-user.target`.
 - **Python environment:** `/opt/jack-venv`, created with
   `--system-site-packages` so apt's `python3-smbus2`, `python3-alsaaudio`,
-  `python3-opuslib` and `python3-protobuf` are used. Only pymumble comes
+  `python3-opuslib` and `python3-protobuf` are used. Only pymumble (and,
+  with show control, `python-osc`) comes
   from pip, pinned in `requirements-pi.txt` to the exact version or git
   commit the spike proved, and installed with `--no-deps` (pymumble pins
   protobuf 3.20.3; apt's 3.21.12 is used instead, if the spike shows it
@@ -533,6 +705,9 @@ and are not tied to any login session or human user.
 - Access from outside the LAN (a VPN such as Tailscale would be the path).
 - Playing pre-recorded clips from the app, and what triggers them. The
   talk loop's source mixing is built so a clip source plugs in later.
-- Motor A behavior beyond holding 0 V.
+- Authentication for show control (LAN trusted; Boss, 2026-10-02).
+- Persisting the mouth mode across restarts.
+- Scripted gestures or animation sequences inside Jack: movement beyond
+  the mouth's lip sync comes from the show controller.
 - The TB6612FNG `STBY` pin. Waveshare's sample code never drives it.
 - Push-based deploys (webhooks, self-hosted runners).
