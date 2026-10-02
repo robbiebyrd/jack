@@ -12,6 +12,10 @@ class MotorOutput(Protocol):
 
     def stop(self) -> None: ...
 
+    def coast(self) -> None:
+        """Stop driving and leave the motor free to turn (no braking)."""
+        ...
+
 
 class VoiceSource(Protocol):
     """Where voices come from: a Mumble channel, a WAV file, later pre-recorded clips."""

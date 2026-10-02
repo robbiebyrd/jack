@@ -25,6 +25,7 @@ class MotorChannels(NamedTuple):
 # Channel mapping from Waveshare's Motor Driver HAT sample code.
 MOTOR_A = MotorChannels(pwm=0, in1=1, in2=2)
 MOTOR_B = MotorChannels(pwm=5, in1=3, in2=4)
+MOTOR_CHANNELS: dict[str, MotorChannels] = {"A": MOTOR_A, "B": MOTOR_B}
 
 
 class Tb6612Motor:
@@ -54,17 +55,25 @@ class Tb6612Motor:
         self._set_duty(abs(count))
 
     def stop(self) -> None:
-        """Short brake: zero the duty, then drive IN1 and IN2 high so the TB6612FNG shorts the motor leads.
+        """Short brake: zero the duty, then drive IN1 and IN2 high so the TB6612FNG shorts the motor leads."""
+        self._release(HIGH)
+
+    def coast(self) -> None:
+        """Coast: zero the duty, then drive IN1 and IN2 low so the TB6612FNG leaves the motor leads open."""
+        self._release(LOW)
+
+    def _release(self, level: int) -> None:
+        """Zero the duty and set both inputs to `level`.
 
         Each write is attempted even if an earlier one raises, so a transient I2C
-        error zeroing the duty doesn't skip the brake pins.
+        error zeroing the duty doesn't skip the input pins.
         """
         self._forward = None
         attempt_all(
             [
                 lambda: self._set_duty(0),
-                lambda: self._chip.set_off_count(self._channels.in1, HIGH),
-                lambda: self._chip.set_off_count(self._channels.in2, HIGH),
+                lambda: self._chip.set_off_count(self._channels.in1, level),
+                lambda: self._chip.set_off_count(self._channels.in2, level),
             ]
         )
 

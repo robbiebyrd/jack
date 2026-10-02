@@ -36,6 +36,9 @@ class RecordingMotor:
     def stop(self):
         self.calls.append(("stop",))
 
+    def coast(self):
+        self.calls.append(("coast",))
+
 
 def make_fake_leds(leds_dir):
     """Build a /sys/class/leds stand-in with the Pi 4's ACT and PWR LEDs and their normal triggers."""

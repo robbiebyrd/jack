@@ -2,7 +2,7 @@ import pytest
 
 from motor_test.pca9685 import Pca9685
 from motor_test.ramp import PWM_MAX_COUNT
-from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, MotorChannels, Tb6612Motor
+from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, MOTOR_CHANNELS, MotorChannels, Tb6612Motor
 from tests.fakes import RecordingBus, off_count
 
 ADDRESS = 0x40
@@ -144,3 +144,33 @@ def test_direction_change_zeroes_the_duty_before_flipping_the_pins():
     assert bus.writes[registers.index(0x1D)] == (ADDRESS, 0x1D, 0x00)
     assert off_count(bus, 5) == 341
     assert (off_count(bus, 3), off_count(bus, 4)) == (0, PWM_MAX_COUNT)
+
+
+def test_channels_by_letter():
+    assert MOTOR_CHANNELS == {"A": MOTOR_A, "B": MOTOR_B}
+
+
+@pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])
+def test_coast_zeroes_duty_and_drives_both_inputs_low(channels):
+    bus, _, motor = make_motor(channels)
+    motor.drive(2000)
+    motor.coast()
+    assert off_count(bus, channels.pwm) == 0
+    assert (off_count(bus, channels.in1), off_count(bus, channels.in2)) == (0, 0)
+
+
+def test_drive_after_coast_restores_the_direction_pins():
+    bus, _, motor = make_motor(MOTOR_A)
+    motor.coast()
+    motor.drive(500)
+    assert (off_count(bus, 1), off_count(bus, 2)) == (0, PWM_MAX_COUNT)
+    assert off_count(bus, 0) == 500
+
+
+def test_coast_still_releases_the_inputs_when_zeroing_duty_fails():
+    bus = PwmWriteFailsBus(failing_channel=0)
+    chip = Pca9685(bus, ADDRESS, pwm_freq_hz=50)
+    motor = Tb6612Motor(chip, MOTOR_A)
+    with pytest.raises(OSError):
+        motor.coast()
+    assert (off_count(bus, 1), off_count(bus, 2)) == (0, 0)
