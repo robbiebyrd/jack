@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jack control</title>
+<style>
+  :root { --bg: #fafafa; --fg: #1a1a1a; --muted: #666; --card: #fff; --line: #ddd; --accent: #2a6df4; --warn: #c0392b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121212; --fg: #eee; --muted: #999; --card: #1e1e1e; --line: #333; --accent: #6c9bff; --warn: #ff6b5b; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 16px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 1.3rem; margin: 0 0 12px; }
+  .motor { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .motor h2 { font-size: 1.05rem; margin: 0 0 8px; display: flex; justify-content: space-between; gap: 8px; }
+  .muted { color: var(--muted); font-weight: normal; font-size: .85rem; }
+  .warn { color: var(--warn); }
+  input[type=range] { width: 100%; touch-action: none; }
+  button { font: inherit; padding: 6px 12px; margin: 4px 4px 0 0; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #error { color: var(--warn); min-height: 1.4em; }
+</style>
+</head>
+<body>
+<h1>Jack <span class="muted" id="mumble"></span></h1>
+<div>Mouth: <button id="mode-live">live voice</button><button id="mode-show">show control</button></div>
+<p id="error"></p>
+<div id="motors"></div>
+<script>
+// Sliders resend their value every 50 ms while held: Jack rests a motor 0.5 s after values stop (dead-man).
+const RESEND_MS = 50;
+const motorsEl = document.getElementById("motors");
+const errorEl = document.getElementById("error");
+let built = false;
+
+async function post(path, body) {
+  try {
+    const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    errorEl.textContent = response.ok ? "" : (await response.json()).error;
+  } catch (error) {
+    errorEl.textContent = "Jack is unreachable: " + error;
+  }
+}
+
+function buildMotor(name, info) {
+  const card = document.createElement("div");
+  card.className = "motor";
+  const low = info.two_sided ? -1 : 0;
+  card.innerHTML = `<h2><span>${name}${info.calibrated ? "" : ' <span class="muted">(uncalibrated)</span>'}</span>` +
+    `<span class="muted" id="${name}-state"></span></h2>` +
+    `<input type="range" id="${name}-slider" min="${low}" max="1" step="0.01" value="0" aria-label="${name}">` +
+    `<div id="${name}-poses"></div><button id="${name}-rest">rest</button>`;
+  motorsEl.appendChild(card);
+  const slider = card.querySelector(`#${name}-slider`);
+  let timer = null;
+  const send = () => post("/" + name, { value: Number(slider.value) });
+  const release = () => { if (timer) { clearInterval(timer); timer = null; } slider.value = 0; post("/" + name + "/rest"); };
+  slider.addEventListener("pointerdown", () => { send(); timer = setInterval(send, RESEND_MS); });
+  slider.addEventListener("input", send);
+  slider.addEventListener("pointerup", release);
+  slider.addEventListener("pointercancel", release);
+  const poses = card.querySelector(`#${name}-poses`);
+  for (const pose of info.poses) {
+    const button = document.createElement("button");
+    button.textContent = pose;
+    button.addEventListener("click", () => post("/" + name + "/pose", { name: pose }));
+    poses.appendChild(button);
+  }
+  card.querySelector(`#${name}-rest`).addEventListener("click", () => post("/" + name + "/rest"));
+}
+
+function show(status) {
+  if (!built) {
+    for (const [name, info] of Object.entries(status.motors)) buildMotor(name, info);
+    built = true;
+  }
+  document.getElementById("mumble").textContent = status.mumble_connected ? "· Mumble connected" : "· Mumble disconnected";
+  document.getElementById("mode-live").classList.toggle("on", status.mouth_mode === "live");
+  document.getElementById("mode-show").classList.toggle("on", status.mouth_mode === "show");
+  for (const [name, info] of Object.entries(status.motors)) {
+    const state = document.getElementById(name + "-state");
+    const command = info.command ? (info.command.pose ? `pose ${info.command.pose}` : `value ${info.command.value}`) : "rest";
+    state.textContent = `${command} · ${info.volts.toFixed(2)} V` + (info.max_hold_tripped ? " · MAX HOLD" : "");
+    state.classList.toggle("warn", info.max_hold_tripped);
+  }
+}
+
+async function refresh() {
+  try {
+    show(await (await fetch("/status")).json());
+  } catch (error) {
+    errorEl.textContent = "Jack is unreachable: " + error;
+  }
+}
+
+document.getElementById("mode-live").addEventListener("click", () => post("/mouth/mode", { mode: "live" }).then(refresh));
+document.getElementById("mode-show").addEventListener("click", () => post("/mouth/mode", { mode: "show" }).then(refresh));
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>
