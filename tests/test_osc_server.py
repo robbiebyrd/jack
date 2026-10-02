@@ -234,3 +234,30 @@ def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues():
         bad.close()
         good.close()
         endpoint.close()
+
+
+def test_an_unexpected_error_in_a_feedback_cycle_is_logged_and_feedback_continues():
+    endpoint = OscEndpoint("127.0.0.1", 0)
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    client.bind(("127.0.0.1", 0))
+    subs = Subscribers(time.monotonic)
+    snapshot = feedback_snapshot()
+    calls = []
+    logged = []
+
+    def status():
+        calls.append(1)
+        if len(calls) == 1:
+            raise KeyError("motors")
+        return snapshot
+
+    subs.subscribe(client.getsockname())
+    stop_feedback = start_feedback(endpoint, subs, status, lambda key, message: logged.append((key, message)), interval_s=0.01)
+    try:
+        got = recv_messages(client, len(state_messages(snapshot)))
+        assert got == [(address, args) for address, args in state_messages(snapshot)]
+        assert logged == [("feedback loop", "OSC feedback cycle failed: KeyError: 'motors'")]
+    finally:
+        stop_feedback.set()
+        client.close()
+        endpoint.close()

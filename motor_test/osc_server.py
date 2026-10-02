@@ -64,7 +64,13 @@ def start_feedback(
 
     def run() -> None:
         while not stop.wait(interval_s):
-            for destination, messages in subscribers.due(state_messages(status())):
+            try:
+                batches = subscribers.due(state_messages(status()))
+            except Exception as error:
+                # One bad cycle must not end feedback for the rest of the show.
+                log("feedback loop", f"OSC feedback cycle failed: {type(error).__name__}: {error}")
+                continue
+            for destination, messages in batches:
                 try:
                     endpoint.send(destination, messages)
                 except OSError as error:
