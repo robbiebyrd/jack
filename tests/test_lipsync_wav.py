@@ -28,14 +28,17 @@ def test_refuses_while_the_app_is_running(monkeypatch, capsys):
 
 def test_impossible_override_is_rejected_before_touching_hardware(monkeypatch, capsys):
     monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
-    assert lipsync_wav.main(["voice.wav", "--open-min-v", "3", "--open-max-v", "2"]) == 2
-    assert "open_max_v" in capsys.readouterr().err
+    assert lipsync_wav.main(["voice.wav", "--gate-close-db", "-20"]) == 2
+    assert "gate_close_db" in capsys.readouterr().err
 
 
-def test_override_above_the_supply_is_rejected_before_touching_hardware(monkeypatch, capsys):
+def test_invalid_poses_file_is_rejected_before_touching_hardware(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
-    assert lipsync_wav.main(["voice.wav", "--open-max-v", "20"]) == 2
-    assert "supply" in capsys.readouterr().err
+    bad = tmp_path / "poses.toml"
+    bad.write_text("[mouth]\nmax_v = 99\n")
+    monkeypatch.setattr(lipsync_wav, "POSES_PATHS", (lipsync_wav.POSES_PATHS[0], bad))
+    assert lipsync_wav.main(["voice.wav"]) == 2
+    assert "99" in capsys.readouterr().err
 
 
 def test_missing_wav_is_rejected_before_touching_hardware(monkeypatch, capsys, tmp_path):

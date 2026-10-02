@@ -6,10 +6,12 @@ from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
 from tests.audio import constant_frame
 from tests.fakes import MotorThatFailsToStop, RecordingMotor, RecordingSink, ScriptedSource, drives, no_op
+from tests.profiles import profile
 
 SUPPLY_VOLTS = 12.0
 LOUD = constant_frame(20000)  # about -4.3 dBFS: above full_db once the envelope has risen
-FAST = TalkSettings(open_slew_v_per_s=1000.0)
+FAST = TalkSettings()
+FAST_MOUTH = profile("mouth", slew_v_per_s=1000.0)
 
 
 def stop_after(ticks):
@@ -30,7 +32,7 @@ def talk(sources, ticks, settings=FAST, sink=None, mouth=None, idle=None, on_sec
     sink = sink if sink is not None else RecordingSink()
     mouth = mouth if mouth is not None else RecordingMotor()
     idle = idle if idle is not None else RecordingMotor()
-    run_talk_loop(sources, sink, mouth, [idle], settings, SUPPLY_VOLTS, on_second, stop_after(ticks))
+    run_talk_loop(sources, sink, mouth, [idle], settings, FAST_MOUTH, SUPPLY_VOLTS, on_second, stop_after(ticks))
     return sink, mouth, idle
 
 
@@ -58,7 +60,7 @@ def test_sources_sounding_together_are_mixed():
 
 
 def test_mouth_lead_delays_the_audio_but_not_the_mouth():
-    settings = TalkSettings(open_slew_v_per_s=1000.0, mouth_lead_ms=40.0)
+    settings = TalkSettings(mouth_lead_ms=40.0)
     sink, mouth, _ = talk([ScriptedSource([LOUD] * 3)], ticks=3, settings=settings)
     assert sink.frames == [silence(), silence(), LOUD]
     assert drives(mouth)[0] < 0
@@ -87,12 +89,3 @@ def test_a_motor_failing_to_stop_still_stops_the_other_and_closes_the_sink():
     assert idle.calls[-1] == ("stop",)
     assert sink.closed
 
-
-@pytest.mark.parametrize("overrides", [{"open_max_v": 13.0}, {"close_v": 12.5}])
-def test_voltages_beyond_the_supply_are_rejected_before_the_mouth_moves(overrides):
-    sink, mouth = RecordingSink(), RecordingMotor()
-    with pytest.raises(ValueError):
-        talk([ScriptedSource([LOUD])], ticks=1, settings=TalkSettings(**overrides), sink=sink, mouth=mouth)
-    assert drives(mouth) == []
-    assert sink.frames == []
-    assert sink.closed

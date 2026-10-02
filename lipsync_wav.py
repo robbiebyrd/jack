@@ -3,7 +3,8 @@
 Stop the app first so the two programs don't fight over the HAT and the sound card:
     sudo systemctl stop jack
     /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py voice.wav --gate-open-db -30 --release-s 0.1
-The WAV must be mono 16-bit 48 kHz. Settings are in motor_test/talk_settings.py.
+The WAV must be mono 16-bit 48 kHz. Settings are in motor_test/talk_settings.py;
+the mouth's voltages are in poses.toml.
 """
 
 import argparse
@@ -13,12 +14,13 @@ from collections.abc import Callable
 
 from smbus2 import SMBus
 
-from main import ALSA_DEVICE, ALSA_PERIODS, I2C_BUS, PCA9685_ADDRESS, PWM_FREQ_HZ, SUPPLY_VOLTS
+from main import ALSA_DEVICE, ALSA_PERIODS, I2C_BUS, PCA9685_ADDRESS, POSES_PATHS, PWM_FREQ_HZ, SUPPLY_VOLTS
 from motor_test.alsa_sink import open_alsa_sink
 from motor_test.pca9685 import Pca9685
 from motor_test.pcm import TICKS_PER_SECOND
+from motor_test.poses import load_profiles
 from motor_test.service_guard import STOP_APP_FIRST, app_is_running
-from motor_test.talk_loop import check_supply, run_talk_loop
+from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
 from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, Tb6612Motor
 from motor_test.wav_source import WavSource
@@ -63,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         settings = settings_from_args(args)
-        check_supply(settings, SUPPLY_VOLTS)
+        mouth = load_profiles(POSES_PATHS, SUPPLY_VOLTS)["mouth"]
         source = WavSource(args.wav)
     except (ValueError, OSError) as error:
         print(error, file=sys.stderr)
@@ -79,6 +81,7 @@ def main(argv: list[str] | None = None) -> int:
                 Tb6612Motor(chip, MOTOR_B),
                 [Tb6612Motor(chip, MOTOR_A)],
                 settings,
+                mouth,
                 SUPPLY_VOLTS,
                 lambda: None,
                 after_tail(source, TAIL_TICKS),

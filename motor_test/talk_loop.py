@@ -12,6 +12,7 @@ from motor_test.envelope import EnvelopeFollower, rms_dbfs
 from motor_test.lip_sync import MouthController
 from motor_test.pcm import TICK_S, TICKS_PER_SECOND, mix, silence
 from motor_test.ports import AudioSink, MotorOutput, VoiceSource
+from motor_test.poses import MotorProfile
 from motor_test.ramp import volts_to_count
 from motor_test.talk_settings import TalkSettings
 
@@ -22,6 +23,7 @@ def run_talk_loop(
     mouth: MotorOutput,
     idle_motors: Sequence[MotorOutput],
     settings: TalkSettings,
+    mouth_profile: MotorProfile,
     supply_volts: float,
     on_second: Callable[[], None],
     until: Callable[[], bool] = lambda: False,
@@ -35,11 +37,10 @@ def run_talk_loop(
     the reason, and a failure in one of those does not skip the others.
     """
     envelope = EnvelopeFollower(settings.attack_s, settings.release_s, TICK_S)
-    controller = MouthController(settings)
+    controller = MouthController(settings, mouth_profile)
     delayed_audio = deque(silence() for _ in range(settings.mouth_lead_ticks))
     ticks = 0
     try:
-        check_supply(settings, supply_volts)
         for motor in idle_motors:
             motor.drive(0)
         while not until():
@@ -55,9 +56,3 @@ def run_talk_loop(
     finally:
         attempt_all([mouth.stop, *(motor.stop for motor in idle_motors), sink.close])
 
-
-def check_supply(settings: TalkSettings, supply_volts: float) -> None:
-    """Reject settings that ask for more volts than the supply can produce, before any motion."""
-    for name in ("open_max_v", "close_v"):
-        if getattr(settings, name) > supply_volts:
-            raise ValueError(f"{name} ({getattr(settings, name)} V) exceeds the {supply_volts} V supply")

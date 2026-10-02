@@ -7,6 +7,8 @@ stays above the (lower) close gate; then a short closing pulse. See "Mouth contr
 from enum import Enum
 
 from motor_test.pcm import TICK_S
+from motor_test.poses import MotorProfile
+from motor_test.ramp import whole_steps
 from motor_test.talk_settings import TalkSettings
 
 
@@ -19,9 +21,11 @@ class _State(Enum):
 class MouthController:
     """State machine from level (dBFS) to signed volts for the mouth motor; negative opens."""
 
-    def __init__(self, settings: TalkSettings):
+    def __init__(self, settings: TalkSettings, mouth: MotorProfile):
         self._settings = settings
-        self._slew_per_tick = settings.open_slew_v_per_s * TICK_S
+        self._mouth = mouth
+        self._slew_per_tick = mouth.slew_v_per_s * TICK_S
+        self._close_ticks = whole_steps(mouth.rest_pulse_s, TICK_S) if mouth.rest_pulse_s > 0 else 0
         self._state = _State.CLOSED
         self._magnitude = 0.0
         self._close_ticks_left = 0
@@ -36,7 +40,7 @@ class MouthController:
             self._start_closing()
 
         if self._state is _State.OPEN:
-            return -self._open_magnitude(level_db)
+            return self._mouth.sign * self._open_magnitude(level_db)
         if self._state is _State.CLOSING:
             return self._closing_volts()
         return 0.0
@@ -46,9 +50,9 @@ class MouthController:
         loudness = min(1.0, max(0.0, (level_db - s.gate_open_db) / (s.full_db - s.gate_open_db)))
         # The curve keeps medium syllables near relaxed open so only loud peaks open wide.
         loudness = loudness**s.open_curve
-        target = s.open_min_v + (s.open_max_v - s.open_min_v) * loudness
+        target = self._mouth.min_v + (self._mouth.max_v - self._mouth.min_v) * loudness
         if self._stall_capped:
-            target = min(target, s.open_min_v)
+            target = min(target, self._mouth.min_v)
         # Opening wider is slew-limited because stepping straight to fully open strains the motor.
         self._magnitude = min(target, self._magnitude + self._slew_per_tick)
         self._guard_stall()
@@ -63,11 +67,11 @@ class MouthController:
         self._stall_ticks += 1
         if self._stall_ticks > s.max_stall_ticks:
             self._stall_capped = True
-            self._magnitude = min(self._magnitude, s.open_min_v)
+            self._magnitude = min(self._magnitude, self._mouth.min_v)
 
     def _start_closing(self) -> None:
-        self._state = _State.CLOSING
-        self._close_ticks_left = self._settings.close_ticks
+        self._state = _State.CLOSING if self._close_ticks else _State.CLOSED
+        self._close_ticks_left = self._close_ticks
         self._magnitude = 0.0
         self._stall_ticks = 0
         self._stall_capped = False
@@ -76,4 +80,4 @@ class MouthController:
         self._close_ticks_left -= 1
         if self._close_ticks_left == 0:
             self._state = _State.CLOSED
-        return self._settings.close_v
+        return self._mouth.rest_pulse_v

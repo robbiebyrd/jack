@@ -122,13 +122,6 @@ def test_impossible_override_exits_saying_the_settings_are_invalid():
     assert "Mouth settings from /etc/jack/jack.env are invalid" in exit_info.value.code
 
 
-def test_override_beyond_the_supply_exits_saying_the_settings_are_invalid():
-    with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({"JACK_OPEN_MAX_V": "13"})
-    assert "Mouth settings from /etc/jack/jack.env are invalid" in exit_info.value.code
-    assert "open_max_v" in exit_info.value.code
-
-
 def test_applied_overrides_are_listed_for_the_log():
     assert main.describe_overrides(TalkSettings(gate_open_db=-20.0, open_curve=1.5)) == (
         "open_curve=1.5, gate_open_db=-20.0"
@@ -136,8 +129,37 @@ def test_applied_overrides_are_listed_for_the_log():
     assert main.describe_overrides(TalkSettings()) == ""
 
 
-@pytest.mark.parametrize("var, value", [("JACK_OPEN_MIN_V", "nan"), ("JACK_OPEN_MAX_V", "inf")])
+@pytest.mark.parametrize("var, value", [("JACK_ATTACK_S", "nan"), ("JACK_RELEASE_S", "inf")])
 def test_non_finite_override_exits_naming_the_variable(var, value):
     with pytest.raises(SystemExit) as exit_info:
         main.talk_settings({var: value})
     assert exit_info.value.code == f"{var}={value!r} in /etc/jack/jack.env is not a number"
+
+
+@pytest.mark.parametrize(
+    "var, key",
+    [
+        ("JACK_OPEN_MIN_V", "min_v"),
+        ("JACK_OPEN_MAX_V", "max_v"),
+        ("JACK_OPEN_SLEW_V_PER_S", "slew_v_per_s"),
+        ("JACK_CLOSE_V", "rest_pulse_v"),
+        ("JACK_CLOSE_S", "rest_pulse_s"),
+    ],
+)
+def test_overrides_that_moved_to_poses_toml_stop_the_app_saying_where(var, key):
+    with pytest.raises(SystemExit) as exit_info:
+        main.talk_settings({var: "2"})
+    message = str(exit_info.value.code)
+    assert var in message and key in message and "/etc/jack/poses.toml" in message
+
+
+def test_motor_profiles_load_the_repo_poses_file():
+    assert main.motor_profiles()["mouth"].max_v == 6.0
+
+
+def test_invalid_poses_file_exits_with_one_line(tmp_path):
+    bad = tmp_path / "poses.toml"
+    bad.write_text("[hand]\nmax_v = 99\n")
+    with pytest.raises(SystemExit) as exit_info:
+        main.motor_profiles((main.POSES_PATHS[0], bad))
+    assert "99" in str(exit_info.value.code)

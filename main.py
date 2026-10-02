@@ -6,6 +6,7 @@ import os
 import random
 import signal
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from types import FrameType
 from typing import NoReturn
 
@@ -15,10 +16,11 @@ from motor_test.alsa_sink import open_alsa_sink
 from motor_test.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
 from motor_test.mumble_voice import MumbleVoice, connect_mumble
 from motor_test.pca9685 import Pca9685
+from motor_test.poses import MotorProfile, load_profiles
 from motor_test.ramp import constant_profile, segment_profile
 from motor_test.speech import random_phrase
 from motor_test.systemd_notify import notify
-from motor_test.talk_loop import check_supply, run_talk_loop
+from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
 from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, Tb6612Motor
 
@@ -37,6 +39,16 @@ MUMBLE_USER = "Jack"
 MUMBLE_PASSWORD_ENV = "JACK_MUMBLE_PASSWORD"
 # Any TalkSettings field can be overridden in /etc/jack/jack.env as JACK_<FIELD>.
 SETTING_ENV_PREFIX = "JACK_"
+# Repo defaults, then the Pi's override file (SPEC.md "Poses and per-motor settings").
+POSES_PATHS = (Path(__file__).resolve().parent / "poses.toml", Path("/etc/jack/poses.toml"))
+# Mouth settings that moved from jack.env to the mouth's entry in poses.toml: env field -> poses.toml key.
+MOVED_TO_POSES = {
+    "open_min_v": "min_v",
+    "open_max_v": "max_v",
+    "open_slew_v_per_s": "slew_v_per_s",
+    "close_v": "rest_pulse_v",
+    "close_s": "rest_pulse_s",
+}
 # Fixed pose tour: an alternative to speaking, e.g. for checking the mechanism.
 MOUTH_DEMO = (*CLOSE, *rest(1.5), *RELAX, *rest(1.5), *open_fully(0.5))
 
@@ -95,6 +107,13 @@ def mumble_password(environ: Mapping[str, str] = os.environ) -> str:
 
 def talk_settings(environ: Mapping[str, str] = os.environ) -> TalkSettings:
     """TalkSettings defaults, with any JACK_<FIELD> environment variable (e.g. JACK_GATE_OPEN_DB=-20) overriding that field."""
+    for field, key in MOVED_TO_POSES.items():
+        var = SETTING_ENV_PREFIX + field.upper()
+        if environ.get(var):
+            raise SystemExit(
+                f"{var} moved to the mouth's entry in /etc/jack/poses.toml as {key}; "
+                "remove it from /etc/jack/jack.env, then: sudo systemctl restart jack"
+            )
     overrides: dict[str, float] = {}
     for field in dataclasses.fields(TalkSettings):
         var = SETTING_ENV_PREFIX + field.name.upper()
@@ -110,10 +129,17 @@ def talk_settings(environ: Mapping[str, str] = os.environ) -> TalkSettings:
         overrides[field.name] = number
     try:
         settings = TalkSettings(**overrides)
-        check_supply(settings, SUPPLY_VOLTS)
     except ValueError as error:
         raise SystemExit(f"Mouth settings from /etc/jack/jack.env are invalid: {error}") from error
     return settings
+
+
+def motor_profiles(paths: tuple[Path, ...] = POSES_PATHS) -> dict[str, MotorProfile]:
+    """Every motor's profile from poses.toml, or a one-line exit naming the problem."""
+    try:
+        return load_profiles(paths, SUPPLY_VOLTS)
+    except (ValueError, OSError) as error:
+        raise SystemExit(f"Motor settings are invalid: {error}") from error
 
 
 def describe_overrides(settings: TalkSettings) -> str:
@@ -129,6 +155,7 @@ def describe_overrides(settings: TalkSettings) -> str:
 def main() -> None:
     signal.signal(signal.SIGTERM, exit_on_sigterm)
     settings = talk_settings()
+    profiles = motor_profiles()
     if overrides := describe_overrides(settings):
         print(f"Mouth setting overrides: {overrides}")
     voice = MumbleVoice(settings.max_backlog_frames, print)
@@ -144,6 +171,7 @@ def main() -> None:
             Tb6612Motor(chip, MOTOR_B),
             [Tb6612Motor(chip, MOTOR_A)],
             settings,
+            profiles["mouth"],
             SUPPLY_VOLTS,
             watchdog_while_connected(mumble_client),
         )

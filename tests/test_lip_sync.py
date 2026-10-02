@@ -1,7 +1,9 @@
 import pytest
 
 from motor_test.lip_sync import MouthController
+from motor_test.pcm import TICK_S
 from motor_test.talk_settings import TalkSettings
+from tests.profiles import MOUTH, profile
 
 _DEFAULTS = TalkSettings()
 GATE = _DEFAULTS.gate_open_db
@@ -10,11 +12,12 @@ BELOW_CLOSE = _DEFAULTS.gate_close_db - 5
 QUIET = _DEFAULTS.gate_close_db - 20
 FULL = _DEFAULTS.full_db
 HALF_LOUD = (_DEFAULTS.gate_open_db + _DEFAULTS.full_db) / 2
+CLOSE_TICKS = round(MOUTH.rest_pulse_s / TICK_S)
 
 
 def unslewed(**overrides):
     """A controller whose opening isn't slew-limited, so each test sees target voltages directly."""
-    return MouthController(TalkSettings(open_slew_v_per_s=1000.0, **overrides))
+    return MouthController(TalkSettings(**overrides), profile("mouth", slew_v_per_s=1000.0))
 
 
 def run(controller, levels):
@@ -54,9 +57,8 @@ def test_between_the_gates_a_closed_mouth_stays_closed():
 
 
 def test_falling_below_the_close_gate_pulses_closed_then_rests():
-    settings = TalkSettings(open_slew_v_per_s=1000.0)
-    volts = run(MouthController(settings), [GATE] + [BELOW_CLOSE] * (settings.close_ticks + 2))
-    assert volts == [-1.0] + [0.5] * settings.close_ticks + [0.0, 0.0]
+    volts = run(unslewed(), [GATE] + [BELOW_CLOSE] * (CLOSE_TICKS + 2))
+    assert volts == [-1.0] + [0.5] * CLOSE_TICKS + [0.0, 0.0]
 
 
 def test_next_syllable_interrupts_the_close_pulse():
@@ -64,27 +66,26 @@ def test_next_syllable_interrupts_the_close_pulse():
 
 
 def test_opening_is_slew_limited_to_48_volts_per_second():
-    controller = MouthController(TalkSettings())
+    controller = MouthController(TalkSettings(), MOUTH)
     assert run(controller, [FULL] * 3) == pytest.approx([-0.96, -1.92, -2.88])
 
 
 def test_closing_down_to_a_smaller_opening_is_not_slew_limited():
-    controller = MouthController(TalkSettings())
+    controller = MouthController(TalkSettings(), MOUTH)
     run(controller, [FULL] * 20)
     assert controller.update(GATE) == -1.0
 
 
 def test_stall_guard_caps_a_long_full_open_at_relaxed_open():
-    settings = TalkSettings(open_slew_v_per_s=1000.0)
-    volts = run(MouthController(settings), [FULL] * (settings.max_stall_ticks + 2))
-    assert volts == [-6.0] * settings.max_stall_ticks + [-1.0, -1.0]
+    stall_ticks = TalkSettings().max_stall_ticks
+    volts = run(unslewed(), [FULL] * (stall_ticks + 2))
+    assert volts == [-6.0] * stall_ticks + [-1.0, -1.0]
 
 
 def test_stall_guard_resets_after_the_mouth_closes():
-    settings = TalkSettings(open_slew_v_per_s=1000.0)
-    controller = MouthController(settings)
-    run(controller, [FULL] * (settings.max_stall_ticks + 1))
-    run(controller, [BELOW_CLOSE] * (settings.close_ticks + 1))
+    controller = unslewed()
+    run(controller, [FULL] * (TalkSettings().max_stall_ticks + 1))
+    run(controller, [BELOW_CLOSE] * (CLOSE_TICKS + 1))
     assert controller.update(FULL) == -6.0
 
 
@@ -93,3 +94,15 @@ def test_a_break_below_the_stall_voltage_restarts_the_stall_timer():
     run(controller, [FULL] * 20)
     controller.update(GATE)
     assert run(controller, [FULL] * 20) == [-6.0] * 20
+
+
+def test_volts_and_close_pulse_come_from_the_mouth_profile():
+    controller = MouthController(TalkSettings(), profile("mouth", slew_v_per_s=1000.0, min_v=2.0, max_v=4.0, rest_pulse_v=0.7))
+    assert controller.update(GATE) == -2.0
+    assert controller.update(FULL) == -4.0
+    assert controller.update(BELOW_CLOSE) == 0.7
+
+
+def test_a_mouth_without_a_rest_pulse_closes_straight_to_zero():
+    controller = MouthController(TalkSettings(), profile("mouth", slew_v_per_s=1000.0, rest_pulse_v=0.0, rest_pulse_s=0.0))
+    assert [controller.update(level) for level in (GATE, BELOW_CLOSE, BELOW_CLOSE)] == [-1.0, 0.0, 0.0]
