@@ -253,6 +253,18 @@ basis says calibration:
 All live together in `TalkSettings`. Every duration must be a whole
 number of 20 ms ticks (as the 50 ms steps rule for the motor profiles).
 
+**With show control (Boss, 2026-10-02, "one place per motor"):** the
+mouth's physical facts — `OPEN_MIN_V`, `OPEN_MAX_V`, `OPEN_SLEW_V_PER_S`,
+`CLOSE_V`, `CLOSE_S` — move out of `TalkSettings` into the mouth's entry in
+`poses.toml` (its range, slew and rest pulse; values unchanged). Lip sync
+reads them from there, exactly as show mode does, so one retune covers both
+modes. `TalkSettings` keeps only lip-sync behaviour (gates, `FULL_DB`,
+`OPEN_CURVE`, attack/release, stall guard, mouth lead, backlog). Their
+`jack.env` overrides go away; if any of `JACK_OPEN_MIN_V`,
+`JACK_OPEN_MAX_V`, `JACK_OPEN_SLEW_V_PER_S`, `JACK_CLOSE_V` or
+`JACK_CLOSE_S` is still set, the app refuses to start with a one-line
+message saying to move it to `/etc/jack/poses.toml`.
+
 Every setting can be overridden on the Pi in `/etc/jack/jack.env` as
 `JACK_<SETTING_NAME>` (e.g. `JACK_GATE_OPEN_DB=-20`), then
 `sudo systemctl restart jack`. An invalid value (not a number, an impossible
@@ -335,6 +347,9 @@ file and entry. Per motor:
   mouth's close pulse +0.5 V, 0.08 s, since it holds its pose unpowered).
 - `poses`: named poses, each a voltage, a default duration, and an optional
   ramp time (as the mouth's open).
+
+The mouth's entry is the single source of its voltages for both lip sync
+and show mode (see the note under "Mouth control").
 
 Values: the mouth's come from its calibration and lip-sync tuning
 (open range 1–6 V, close pulse +0.5 V/0.08 s, slew 48 V/s, poses
