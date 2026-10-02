@@ -2,14 +2,16 @@
 
 Routes (an OSC address below /jack, or an HTTP path): /<motor> value; /<motor>/pose name [seconds];
 /<motor>/rest; /rest; /mouth/mode live|show. See "OSC" and "HTTP" in SPEC.md.
+OSC alone also answers /ping, /status, and takes /subscribe [port], /unsubscribe [port]; see "OSC replies and feedback".
 """
 
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from motor_test.control_board import MOUTH_MODES, ControlBoard
 from motor_test.motors import MOTOR_NAMES, motor_spec
+from motor_test.osc_feedback import MAX_SUBSCRIBERS, Destination, Message, Subscribers, state_messages
 from motor_test.poses import MotorProfile
 from motor_test.rate_limited_log import RateLimitedLog
 
@@ -49,13 +51,49 @@ class SetMouthMode:
     mode: str
 
 
+@dataclass(frozen=True)
+class Ping:
+    pass
+
+
+@dataclass(frozen=True)
+class StatusRequest:
+    pass
+
+
+@dataclass(frozen=True)
+class Subscribe:
+    port: int | None  # None means the configured reply port, else the sender's source port
+
+
+@dataclass(frozen=True)
+class Unsubscribe:
+    port: int | None
+
+
 Command = SetValue | StartPose | RestCommand | SetMouthMode
+OscQuery = Ping | StatusRequest | Subscribe | Unsubscribe
 
 
-def osc_command(address: str, args: Sequence[object], profiles: Mapping[str, MotorProfile]) -> Command:
+@dataclass(frozen=True)
+class OscContext:
+    """What handling an OSC message needs besides the message: the robot, who to reply to, and how."""
+
+    profiles: Mapping[str, MotorProfile]
+    board: ControlBoard
+    subscribers: Subscribers
+    send: Callable[[Destination, list[Message]], None]
+    mumble_connected: Callable[[], bool]
+    reply_port: int | None
+    log: RateLimitedLog
+
+
+def osc_command(address: str, args: Sequence[object], profiles: Mapping[str, MotorProfile]) -> Command | OscQuery:
     if not address.startswith(OSC_PREFIX + "/"):
         raise CommandError(f"unknown address {address!r}", 404)
     route = address[len(OSC_PREFIX):]
+    if route in _QUERY_ROUTES:
+        return _query(route, args)
     names = _argument_names(_parts(route))
     # Build first, so an unknown address is a 404 even when it carries arguments.
     command = _build(route, dict(zip(names, args)), profiles)
@@ -85,25 +123,63 @@ def apply(command: Command, board: ControlBoard) -> None:
         board.set_mouth_mode(command.mode)
 
 
-def handle_osc(
-    address: str, args: Sequence[object], profiles: Mapping[str, MotorProfile], board: ControlBoard, log: RateLimitedLog
-) -> None:
-    """Apply one OSC message; anything that can't be applied is logged (rate-limited) and dropped."""
+def handle_osc(address: str, args: Sequence[object], sender: Destination, context: OscContext) -> None:
+    """Apply or answer one OSC message; anything that can't be is logged (rate-limited) and dropped."""
+    log = context.log
     try:
-        command = osc_command(address, args, profiles)
-        apply(command, board)
+        command = osc_command(address, args, context.profiles)
+        if isinstance(command, Ping | StatusRequest | Subscribe | Unsubscribe):
+            _answer(command, sender, context)
+        else:
+            apply(command, context.board)
     except CommandError as error:
         # Keyed by status so a flood of varied bad addresses stays one line per kind.
         log(f"ignored {error.status}", f"Ignored OSC {_clip(address)} {_clip(list(args))}: {_clip(error)}")
         return
+    except OSError as error:
+        log("reply failed", f"OSC reply for {_clip(address)} failed: {_clip(error)}")
+        return
     if isinstance(command, SetValue) and command.value != command.requested:
         log(f"clamped {command.motor}", f"Clamped OSC {_clip(address)} {command.requested} to {command.value}")
+
+
+def _answer(query: OscQuery, sender: Destination, context: OscContext) -> None:
+    reply_to = (sender[0], context.reply_port or sender[1])
+    if isinstance(query, Ping):
+        context.send(reply_to, [("/jack/pong", [])])
+    elif isinstance(query, StatusRequest):
+        context.send(reply_to, state_messages(context.board.status(context.mumble_connected())))
+    else:
+        destination = (sender[0], query.port or reply_to[1])
+        if isinstance(query, Unsubscribe):
+            context.subscribers.unsubscribe(destination)
+        elif not context.subscribers.subscribe(destination):
+            context.log(
+                "subscribers full",
+                f"Refused OSC subscription from {destination}: already {MAX_SUBSCRIBERS} subscribers",
+            )
 
 
 def _clip(value: object) -> str:
     """Shorten text from the network so one packet can't fill the journal."""
     text = str(value)
     return text if len(text) <= MAX_LOGGED_CHARS else text[:MAX_LOGGED_CHARS] + "…"
+
+
+_QUERY_ROUTES = ("/ping", "/status", "/subscribe", "/unsubscribe")
+
+
+def _query(route: str, args: Sequence[object]) -> OscQuery:
+    if route in ("/ping", "/status"):
+        if args:
+            raise CommandError(f"too many arguments for {OSC_PREFIX}{route}")
+        return Ping() if route == "/ping" else StatusRequest()
+    if len(args) > 1:
+        raise CommandError(f"too many arguments for {OSC_PREFIX}{route}")
+    port = args[0] if args else None
+    if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535):
+        raise CommandError(f"port must be an integer 1-65535, got {_clip(port)}")
+    return Subscribe(port) if route == "/subscribe" else Unsubscribe(port)
 
 
 def _parts(route: str) -> list[str]:
