@@ -183,6 +183,21 @@ while True:
 
 ### TouchOSC
 
+**Ready-made layout:** `touchosc/jack.tosc` has every control. Open it in TouchOSC (made for
+TouchOSC 1.x, checked with py2tosc's validator but not yet opened in TouchOSC itself). It has:
+
+- a header row: Subscribe, Ping, a Mumble light, the Mouth show/live toggle and REST ALL;
+- one column per motor: a fader, a volts readout, a MAX HOLD light, a button per pose and Rest.
+
+In TouchOSC's connection settings set host `10.10.0.54`, send port `9000` and receive port
+`21601`, then press Subscribe. The layout is generated from `poses.toml`, so after calibrating or
+renaming poses, regenerate it (on the Mac):
+
+```bash
+.venv/bin/python -m tools.touchosc_layout                 # receive port 21601
+.venv/bin/python -m tools.touchosc_layout --port 9001     # another receive port
+```
+
 Jack accepts what TouchOSC sends without scripting in the layout. This section is based on
 general TouchOSC behaviour (buttons send a number, faders send floats, controls update when a
 message arrives on their own address). It has not been tested against a specific TouchOSC
