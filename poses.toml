@@ -1,0 +1,61 @@
+# Each motor's drive limits and named poses (SPEC.md "Show control").
+# Override any entry on the Pi in /etc/jack/poses.toml (same layout, only the keys you change),
+# then: sudo systemctl restart jack
+# Volts are signed: negative runs the motor "backward". min_v..max_v is the magnitude a
+# command value of just-above-0 .. 1.0 drives, in the direction `sign` (pivot: sign of "right").
+
+[mouth]
+calibrated = true
+min_v = 1.0          # smallest opening (lip-sync tuning, 2026-09-28)
+max_v = 6.0          # fully open (calibration)
+sign = -1            # negative volts open the mouth
+slew_v_per_s = 48.0  # twice the calibrated 24 V/s ramp, Boss's call (2026-09-28)
+max_hold_s = 1.0     # guess: fully open stalls against its end stop
+rest = "brake"
+rest_pulse_v = 0.5   # the mouth holds its pose unpowered, so resting needs a close pulse
+rest_pulse_s = 0.08
+
+[mouth.poses]
+close = { volts = 1.0, seconds = 0.25 }
+relax = { volts = -2.0, seconds = 0.5 }
+open = { volts = -6.0, seconds = 0.5 }
+
+# UNCALIBRATED placeholders until measured with: calibrate.py hand
+[hand]
+calibrated = false
+min_v = 1.0
+max_v = 2.0
+sign = 1             # unverified: which sign curls the hand
+slew_v_per_s = 24.0
+max_hold_s = 1.0
+rest = "brake"
+
+[hand.poses]
+curl = { volts = 2.0, seconds = 0.5 }
+
+# UNCALIBRATED placeholders until measured with: calibrate.py pivot
+[pivot]
+calibrated = false
+min_v = 1.0
+max_v = 2.0
+sign = 1             # unverified: which sign swings right
+slew_v_per_s = 24.0
+max_hold_s = 1.0
+rest = "brake"
+
+[pivot.poses]
+left = { volts = -2.0, seconds = 0.5 }
+right = { volts = 2.0, seconds = 0.5 }
+
+# UNCALIBRATED placeholders until measured with: calibrate.py elbow
+[elbow]
+calibrated = false
+min_v = 1.0
+max_v = 2.0
+sign = 1             # unverified: which sign raises the elbow
+slew_v_per_s = 24.0
+max_hold_s = 1.0
+rest = "brake"
+
+[elbow.poses]
+up = { volts = 2.0, seconds = 0.5 }
