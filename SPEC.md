@@ -415,8 +415,10 @@ points above (hand: +6 V and +5 V 2 s, +3 V 5 s, −1 V 4 s, −3 V 1 s, −5 V
 0.5 s; pivot ±6 V and ±7 V 4 s). The hand's `max_v` is 5 V, since its
 opening holds were measured only to −5 V; its `curl` pose is the full
 +6 V for 1.5 s (within the 2 s hold) and `open` is −5 V for 0.5 s (a full
-open, 0.75 s, is over the −5 V hold, so it takes two). Lip sync can hold a
-quiet opening (1–2 V) for up to 2 s.
+open, 0.75 s, is over the −5 V hold, so it takes two). The holds govern
+show control and poses; lip sync (live mode) still has only its own stall
+guard (`stall_v` 5 V for `max_stall_s` 0.5 s), so it does not yet respect
+the mouth's holds below 5 V.
 The elbow (`up`) stays a **placeholder, marked uncalibrated in the file**:
 2 V, 0.5 s pose, holds ±2 V 1 s, 24 V/s slew, positive sign. Volts beyond the 12 V
 supply are rejected.
