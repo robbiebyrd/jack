@@ -36,7 +36,7 @@ Run each of these and confirm Jack comes back on its own and every motor rests:
 
 See the README's TouchOSC section for setup: host `10.10.0.54`, send port 9000, subscribe with your receive port (1024 or higher).
 
-- **Hold a fader still for a second or more.** If the motor rests and the fader drops to 0 under your finger, TouchOSC isn't resending while held. Raise `JACK_CONTROL_TIMEOUT_S` in `/etc/jack/jack.env`, then `sudo systemctl restart jack`. Each motor's `holds` still cap how long any hold lasts.
+- **Re-import `touchosc/jack.tosc` and check the faders snap back when released** (mouth and elbow to the bottom, hand and pivot to the middle), and that the motor rests at once. A held fader now keeps going until the motor's holds run out (the dead-man is 5 s, since TouchOSC doesn't resend a fader held still).
 - **Watch whether faders and toggles twitch or fight you** while Jack sends feedback. That would mean TouchOSC re-sends values it receives on a control's address, which interferes with the dead-man rule. If it happens, tell Claude.
 - **Use a toggle button,** not a momentary one, on `/jack/mouth/mode/show`.
 

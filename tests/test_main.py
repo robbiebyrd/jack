@@ -169,7 +169,9 @@ def test_invalid_poses_file_exits_with_one_line(tmp_path):
 
 
 def test_show_control_defaults():
-    assert main.show_control_config({}) == main.ShowControlConfig(osc_port=9000, http_port=8080, timeout_s=0.5, mouth_mode="live")
+    assert main.show_control_config({}) == main.ShowControlConfig(
+        osc_port=9000, http_port=8080, timeout_s=5.0, mouth_mode="live"
+    )
 
 
 def test_reply_port_defaults_to_the_senders_port():

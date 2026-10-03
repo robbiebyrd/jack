@@ -483,7 +483,8 @@ holds the latest command — a **value** (with arrival time) or a **pose**
 (name, start time, duration) — and answers "what voltage now?":
 
 - A value holds while new values keep arriving; after
-  `control_timeout_s` (default 0.5 s, `JACK_CONTROL_TIMEOUT_S`) with none,
+  `control_timeout_s` (default 5 s, `JACK_CONTROL_TIMEOUT_S`; longer than the
+  longest hold, since TouchOSC doesn't resend a fader held still) with none,
   the motor goes to rest (dead-man: covers a crashed controller or a
   dropped network).
 - A pose plays for its default duration or the one sent with the command,
@@ -596,7 +597,7 @@ TouchOSC buttons send a number (typically 1 on press, 0 on release). Faders send
    - Feedback includes `/jack/mouth/mode/show` (float 1.0 in show, 0.0 in live), so one toggle on that address both switches the mode and lights up correctly. Use a **toggle** button there: a momentary button's release (0) would switch back to live.
    - The string forms (`live`/`show`) are unchanged.
 
-Unverified: whether a held TouchOSC fader resends while still. If it doesn't, a fader held still for longer than the 0.5 s dead-man rests the motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's `holds` still cap any hold). Also unverified: whether TouchOSC re-sends values it receives.
+Measured 2026-10-03 (Jack's own feedback while Boss held the hand fader): a TouchOSC fader held still does not resend, so the old 0.5 s dead-man rested the hand under Boss's finger. So the generated layout's faders snap back on release (value `x` default 0, or 0.5 for two-sided faders, `defaultPull` 100), sending rest the moment they are let go, and the dead-man default is 5 s, longer than the longest hold (the pivot's 4 s); each motor's `holds` still cap any drive. Still unverified: whether TouchOSC re-sends values it receives.
 
 Feedback order: each motor's `/jack/<motor>`, `volts` and `max_hold`, then `/jack/mouth/mode` (string), `/jack/mouth/mode/show` (float), then `/jack/mumble`. Feedback values meant for TouchOSC controls are floats.
 

@@ -128,8 +128,9 @@ motors (`mouth`, `hand`, `pivot`, `elbow`) over OSC (UDP, port 9000) or HTTP (TC
 The voice keeps playing in every mode. There is no authentication: anyone on the LAN can send
 commands.
 
-Keep sending values: a value holds only while new ones keep arriving, and 0.5 s of silence rests
-the motor (`JACK_CONTROL_TIMEOUT_S`).
+A value holds while new ones keep arriving; 5 s without one rests the motor
+(`JACK_CONTROL_TIMEOUT_S`), in case a controller crashes or the network drops. Send 0 (or a rest
+command) to rest a motor straight away.
 
 ### OSC
 
@@ -233,11 +234,11 @@ version, so check it against your layout.
   within 60 s. Or set `JACK_OSC_REPLY_PORT` (see above) and send no value. A press arrives as a
   number, so the value, not the button, carries the port.
 - **Faders:** `/jack/elbow` and `/jack/mouth` use 0 to 1. `/jack/hand` (open … curled) and
-  `/jack/pivot` (left … right) use -1 to 1, so set those faders' range to -1...1. Whether a held fader keeps resending while
-  still is unverified. If it doesn't, a fader held still longer than the 0.5 s dead-man rests the
-  motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's
-  holds still cap any hold). Whether TouchOSC re-sends values it receives is also unverified.
-  Releasing a fader lets the motor rest after 0.5 s. `/jack/mouth` only works in `show` mode.
+  `/jack/pivot` (left … right) use -1 to 1, so set those faders' range to -1...1. TouchOSC doesn't
+  resend a fader held still, so make each fader snap back on release (the generated layout does:
+  value default 0, or 0.5 for the two-sided faders, with full pull). Releasing then sends rest at
+  once; holding still keeps the motor going until its holds run out or 5 s pass. Whether TouchOSC
+  re-sends values it receives is unverified. `/jack/mouth` only works in `show` mode.
 - **Buttons:** `/jack/rest`, `/jack/<motor>/rest` and `/jack/<motor>/pose/<name>` (for example
   `/jack/elbow/pose/up`) act on press (a non-zero number) and ignore release (0). The pose plays
   for its default duration; an unknown pose is logged and ignored. The same press/release rule
@@ -291,7 +292,7 @@ any mouth command is dropped.
 | `JACK_OSC_PORT` | `9000` | OSC UDP port |
 | `JACK_OSC_REPLY_PORT` | sender's port | UDP port OSC replies and feedback go to |
 | `JACK_HTTP_PORT` | `8080` | HTTP TCP port |
-| `JACK_CONTROL_TIMEOUT_S` | `0.5` | Seconds without a new value before a motor rests |
+| `JACK_CONTROL_TIMEOUT_S` | `5` | Seconds without a new value before a motor rests |
 | `JACK_MOUTH_MODE` | `live` | Mouth mode at startup: `live` or `show` |
 | `JACK_ROC_SOURCE_PORT` | `10001` | ROC audio (RTP) UDP port |
 | `JACK_ROC_REPAIR_PORT` | `10002` | ROC repair (FEC) UDP port |

@@ -62,7 +62,9 @@ MOVED_TO_POSES = {
 # Show control (SPEC.md "Show control"); every value can be set in /etc/jack/jack.env.
 DEFAULT_OSC_PORT = 9000
 DEFAULT_HTTP_PORT = 8080
-DEFAULT_CONTROL_TIMEOUT_S = 0.5
+# Longer than the longest hold (the pivot's 4 s): TouchOSC doesn't resend a fader held still, and its
+# faders send rest themselves on release, so this only covers a lost network or a crashed controller.
+DEFAULT_CONTROL_TIMEOUT_S = 5.0
 # Roc Toolkit voice (SPEC.md "ROC voice"); every value can be set in /etc/jack/jack.env.
 DEFAULT_ROC_SOURCE_PORT = 10001
 DEFAULT_ROC_REPAIR_PORT = 10002

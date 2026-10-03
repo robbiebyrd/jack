@@ -3,6 +3,7 @@ from pathlib import Path
 import py2tosc
 from py2tosc.enums import Conversion, PartialType, TriggerCondition
 
+from jack.show.motion.motors import motor_spec
 from tools.touchosc_layout import build_layout
 from tests.profiles import PROFILES
 
@@ -97,3 +98,13 @@ def test_the_repo_layout_file_is_up_to_date():
     repo_file = Path(__file__).resolve().parent.parent / "touchosc" / "jack.tosc"
     profiles = load_profiles([POSES_PATHS[0]], 12.0)
     assert sent(py2tosc.load(repo_file)) == sent(build_layout(profiles, PORT))
+
+
+def test_released_faders_snap_back_to_rest():
+    """TouchOSC doesn't resend a fader held still, so release must send rest: 0 to Jack, the centre for two-sided."""
+    doc = build_layout(PROFILES, PORT)
+    for motor in PROFILES:
+        [fader] = [control for control in doc.walk() if control.get("name") == f"{motor}_fader"]
+        rest = 0.5 if motor_spec(motor).two_sided else 0.0
+        x = fader.value("x")
+        assert (motor, x.default, x.default_pull) == (motor, rest, 100)

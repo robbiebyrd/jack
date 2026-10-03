@@ -55,10 +55,14 @@ def _motor_column(name: str, profile: MotorProfile, pose_rows: int) -> py2tosc.C
     colour = MOTOR_COLOURS.get(name, BLUE)
     low = -1.0 if motor_spec(name).two_sided else 0.0
     title = name if profile.calibrated else f"{name} (uncalibrated)"
+    # TouchOSC doesn't resend a fader held still, so a released fader must send rest itself: it snaps
+    # back to the value that means 0 to Jack (the middle of a two-sided fader).
+    rest = 0.5 if low < 0 else 0.0
     fader = py2tosc.fader(
         name=f"{name}_fader",
         color=colour,
         centered=low < 0,
+        values=[Value("x", default=rest, default_pull=100), Value("touch", default=False)],
         messages=[ui.osc(f"/jack/{name}", args=[ui.value("x", scale=(low, 1.0))])],
     )
     poses = [_press_button(pose, f"/jack/{name}/pose/{pose}", colour) for pose in profile.poses]
