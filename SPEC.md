@@ -365,8 +365,13 @@ file and entry. Per motor:
   of "positive" (for the pivot: the sign of "right"; left is the opposite).
   `calibrated` marks whether the entry was measured.
 - `slew_v_per_s`: how fast the drive may grow (all motors, as the mouth).
-- `max_hold_s`: longest continuous drive away from rest before the motor
-  is forced to rest (stall protection).
+- `holds`: the motor's measured safe drive times, a list of
+  `{ volts = <V>, seconds = <s> }` points (stall protection; "hold" is the
+  safe total time driven at that voltage). The hold at a voltage V is read
+  only from points with V's sign: interpolated linearly on |V| between
+  points, and the lowest point's hold below it (lower volts hold longer).
+  `max_hold_s`, the single cutoff it replaces, is refused with a message
+  saying to write `holds` instead.
 - `rest`: `"brake"` (short brake, the default and today's behaviour) or
   `"coast"` (leads open), in case braking slows a spring return; plus an
   optional rest pulse (`rest_pulse_v`, `rest_pulse_s`) played on the way to
@@ -375,8 +380,15 @@ file and entry. Per motor:
 - `poses`: named poses, each a signed voltage and a default duration.
   Poses have no ramp of their own: every move ramps at the motor's
   `slew_v_per_s`, in show control and in `calibrate.py` alike.
-- `max_hold_s` and a non-zero `rest_pulse_s` must be whole 20 ms ticks.
-  Unknown keys (typos) are rejected.
+- A non-zero `rest_pulse_s` must be whole 20 ms ticks. Unknown keys
+  (typos) are rejected.
+- Nothing may run on an unmeasured hold. The file is refused at load if a
+  hold point's seconds aren't positive or its volts are 0, or if any of
+  these has no hold point at or above its magnitude in its direction: the
+  continuous range (`sign × max_v`, and `−sign × max_v` for a two-sided
+  motor), any pose, the rest pulse. It is also refused if a pose lasts
+  longer than the hold at its volts, or the rest pulse longer than the hold
+  at its volts.
 
 The mouth's entry is the single source of its voltages for both lip sync
 and show mode (see the note under "Mouth control").
@@ -398,12 +410,15 @@ fidelity), slew 48 V/s, close pulse −0.5 V/0.08 s, poses `close` −1 V,
 `relax` +2 V, `open` +6 V. The hand runs 3–6 V both ways (the lowest volts
 that move it both ways), poses `curl` +6 V and `open` −5 V. The pivot runs
 6–7 V, poses `left`/`right` ±6 V for 2 s (about centre to one side). The
-hand and pivot slew at 24 V/s (not measured). `max_hold_s` is one cutoff per
-motor, so it is the hold at the motor's hardest drive: mouth 0.5 s (was 1 s,
-so lip sync rests a mouth held open longer than that), hand 0.5 s (its curl
-and open poses are cut to 0.5 s, so a full move takes several), pivot 4 s.
+hand and pivot slew at 24 V/s (not measured). `holds` are the measured
+points above (hand: +6 V and +5 V 2 s, +3 V 5 s, −1 V 4 s, −3 V 1 s, −5 V
+0.5 s; pivot ±6 V and ±7 V 4 s). The hand's `max_v` is 5 V, since its
+opening holds were measured only to −5 V; its `curl` pose is the full
++6 V for 1.5 s (within the 2 s hold) and `open` is −5 V for 0.5 s (a full
+open, 0.75 s, is over the −5 V hold, so it takes two). Lip sync can hold a
+quiet opening (1–2 V) for up to 2 s.
 The elbow (`up`) stays a **placeholder, marked uncalibrated in the file**:
-2 V, 0.5 s pose, 1 s max hold, 24 V/s slew, positive sign. Volts beyond the 12 V
+2 V, 0.5 s pose, holds ±2 V 1 s, 24 V/s slew, positive sign. Volts beyond the 12 V
 supply are rejected.
 
 ### Command board (`motor_test/control_board.py`)
@@ -421,8 +436,12 @@ holds the latest command — a **value** (with arrival time) or a **pose**
   then the motor goes to rest.
 - A new command for a motor replaces the previous one at once; a rest
   command sends it to rest at once.
-- Max hold: driven away from rest longer than `max_hold_s` → forced to
-  rest until a rest command arrives or commands stop.
+- Max hold: a stall budget. Each driven tick at the volts actually applied
+  (after slew) uses `TICK_S / hold(volts)` of it; when the budget is spent
+  the motor is forced to rest until a rest command arrives or commands
+  stop. Any rest refills the budget at once. Rest-pulse ticks use none (the
+  pulse is checked against the holds at load). So 0.25 s at 6 V and 1 s at
+  2 V on the mouth (half of 0.5 s, half of 2 s) together spend it.
 - The slew limit applies only to driving harder (a growing magnitude, or a
   reversal of direction). Easing off is immediate, and so are going to rest
   and the jump to the rest pulse: going to rest plays the motor's rest
@@ -521,7 +540,7 @@ TouchOSC buttons send a number (typically 1 on press, 0 on release). Faders send
    - Feedback includes `/jack/mouth/mode/show` (float 1.0 in show, 0.0 in live), so one toggle on that address both switches the mode and lights up correctly. Use a **toggle** button there: a momentary button's release (0) would switch back to live.
    - The string forms (`live`/`show`) are unchanged.
 
-Unverified: whether a held TouchOSC fader resends while still. If it doesn't, a fader held still for longer than the 0.5 s dead-man rests the motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's `max_hold_s` still caps any hold). Also unverified: whether TouchOSC re-sends values it receives.
+Unverified: whether a held TouchOSC fader resends while still. If it doesn't, a fader held still for longer than the 0.5 s dead-man rests the motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's `holds` still cap any hold). Also unverified: whether TouchOSC re-sends values it receives.
 
 Feedback order: each motor's `/jack/<motor>`, `volts` and `max_hold`, then `/jack/mouth/mode` (string), `/jack/mouth/mode/show` (float), then `/jack/mumble`. Feedback values meant for TouchOSC controls are floats.
 
@@ -571,9 +590,12 @@ at a known voltage while Boss reads MA1/MA2 and MB1/MB2 with a meter.
 ### Testing
 
 - Mac (pytest): registry and `poses.toml` loading (missing fields, unknown
-  motor, bad rest mode, volts beyond supply rejected); command board timing
-  (dead-man, pose duration and override, replacement, max hold trip and
-  reset, rest pulse, slew); translation of every OSC address and HTTP
+  motor, bad rest mode, volts beyond supply rejected; hold lookup at,
+  between and below points and per direction; each unmeasured-hold
+  refusal and a leftover `max_hold_s`; the repo file loads with every pose
+  within its hold); command board timing (dead-man, pose duration and
+  override, replacement, max hold trip at 6 V and at 2 V, a mixed-voltage
+  drive sharing one budget, refill at rest, rest pulse, slew); translation of every OSC address and HTTP
   route incl. clamping and unknown names; HTTP against a real server on a
   localhost port; OSC end to end with real UDP packets on localhost; talk
   loop driving all four motors from the board, the mode switch, and all
