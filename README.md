@@ -60,13 +60,34 @@ After each deploy, the Pi's green and red onboard LEDs blink for 10 s.
 
 ## Talking
 
-Jack plays whatever is said in its Mumble server's root channel and moves the mouth with it.
+Jack plays whatever it hears over ROC (from a Mac) or in its Mumble server's root channel, and moves the
+mouth with it. Both work at once; ROC is the everyday way, Mumble the fallback.
 
 1. Install the Mumble desktop client on your computer and connect to `10.10.0.54`,
    port `64738`, with the server password. Use push-to-talk.
 2. The server password is set on the Pi in `/etc/mumble/mumble-server.ini` (`serverpassword=`) and
    `/etc/jack/jack.env` (`JACK_MUMBLE_PASSWORD=`); both must match. After changing them:
    `sudo systemctl restart mumble-server jack`.
+
+### Talking over ROC (from a Mac)
+
+1. Install the Roc Virtual Audio Device on the Mac (the installer may report errors on `/usr/` and
+   `/Library/` while still installing both files), then reboot:
+   `sudo /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/roc-streaming/roc-vad/HEAD/install.sh)"`
+2. Check it: `roc-vad info` says `driver is loaded`.
+3. Create a sender and point it at the Pi (use the id `roc-vad device list` shows):
+   ```bash
+   roc-vad device add sender --name "Jack"
+   roc-vad device connect 1 \
+     --source rtp+rs8m://10.10.0.54:10001 \
+     --repair rs8m://10.10.0.54:10002 \
+     --control rtcp://10.10.0.54:10003
+   ```
+4. Choose "Jack" as the Mac's sound output (System Settings → Sound → Output). Anything the Mac
+   plays comes out of Jack, about 0.1 s later; you won't hear it on the Mac.
+
+If the sound breaks up, raise `JACK_ROC_TARGET_LATENCY_MS` (below); on the home Wi-Fi 90 ms held
+and 60 ms broke up.
 
 ### Tuning the lip sync
 
@@ -272,6 +293,10 @@ any mouth command is dropped.
 | `JACK_HTTP_PORT` | `8080` | HTTP TCP port |
 | `JACK_CONTROL_TIMEOUT_S` | `0.5` | Seconds without a new value before a motor rests |
 | `JACK_MOUTH_MODE` | `live` | Mouth mode at startup: `live` or `show` |
+| `JACK_ROC_SOURCE_PORT` | `10001` | ROC audio (RTP) UDP port |
+| `JACK_ROC_REPAIR_PORT` | `10002` | ROC repair (FEC) UDP port |
+| `JACK_ROC_CONTROL_PORT` | `10003` | ROC control (RTCP) UDP port |
+| `JACK_ROC_TARGET_LATENCY_MS` | `100` | ROC's latency target; raise it if the sound breaks up |
 
 ### Motor settings: `poses.toml`
 

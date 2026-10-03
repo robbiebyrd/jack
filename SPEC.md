@@ -813,6 +813,10 @@ support them:
 - `jack/adapters/audio/mumble_voice.py` (adapter): a `VoiceSource` with one
   `FrameQueue` per Mumble talker, fed by pymumble's sound callback, plus
   `connect_mumble()`. The only module that imports pymumble.
+- `jack/adapters/audio/roc_voice.py` (adapter): `roc_recv_command(...)` and
+  `RocVoice(command, max_backlog_frames, log)`, a `VoiceSource` that runs
+  and supervises `roc-recv`, keeps the left channel of its raw stereo
+  output, and skips digital silence (see "ROC voice").
 - `jack/adapters/audio/wav_source.py` (adapter): a `VoiceSource` playing one WAV
   file, a frame per tick.
 - `jack/adapters/audio/alsa_sink.py` (adapter): an `AudioSink` on ALSA card 0 via
