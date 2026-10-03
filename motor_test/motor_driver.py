@@ -1,7 +1,7 @@
 """Turns one motor's commanded volts into its drive for each 20 ms tick, within its limits.
 
-Driving harder is slew-limited; driving away from rest longer than max_hold_s forces a rest
-(stall protection) until commands stop; going to rest plays the motor's rest pulse, then brakes
+Driving harder is slew-limited; driving away from rest spends a stall budget (each tick
+TICK_S / hold(volts)), and spending it forces a rest (stall protection) until commands stop; going to rest plays the motor's rest pulse, then brakes
 or coasts. See "Command board" in SPEC.md.
 """
 
@@ -9,7 +9,9 @@ from dataclasses import dataclass
 
 from motor_test.pcm import TICK_S
 from motor_test.poses import MotorProfile
-from motor_test.ramp import whole_steps
+
+# Float sums of exact tick fractions can land a hair over 1; a whole budget is still within the hold.
+BUDGET_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True)
@@ -26,17 +28,16 @@ class MotorDriver:
     def __init__(self, profile: MotorProfile):
         self._profile = profile
         self._slew_per_tick = profile.slew_v_per_s * TICK_S
-        self._max_hold_ticks = whole_steps(profile.max_hold_s, TICK_S)
         self._pulse_ticks = profile.rest_pulse_ticks
         self._volts = 0.0
-        self._held_ticks = 0
+        self._budget_spent = 0.0
         self._pulse_left = 0
         self.max_hold_tripped = False
 
     def resume_from(self, volts: float) -> None:
         """Take over a motor something else left at `volts`, so the next update slews (or rests) from there."""
         self._volts = volts
-        self._held_ticks = 0
+        self._budget_spent = 0.0
         self._pulse_left = 0
         self.max_hold_tripped = False
 
@@ -49,8 +50,9 @@ class MotorDriver:
             return self._to_rest()
         self._pulse_left = 0
         self._volts = self._slewed(target)
-        self._held_ticks += 1
-        if self._held_ticks > self._max_hold_ticks:
+        if self._volts != 0.0:
+            self._budget_spent += TICK_S / self._profile.hold_s(self._volts)
+        if self._budget_spent > 1.0 + BUDGET_TOLERANCE:
             self.max_hold_tripped = True
             return self._to_rest()
         return self._volts
@@ -64,8 +66,8 @@ class MotorDriver:
         return current + step
 
     def _to_rest(self) -> Drive:
-        # Reset even at exactly 0 V (a reversal can land there), so the next command gets its full max hold.
-        self._held_ticks = 0
+        # Refill even at exactly 0 V (a reversal can land there), so the next command gets its whole budget.
+        self._budget_spent = 0.0
         if self._volts != 0.0:
             self._volts = 0.0
             self._pulse_left = self._pulse_ticks

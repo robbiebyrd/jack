@@ -1,6 +1,7 @@
 import pytest
 
 from motor_test.motor_driver import MotorDriver, Rest
+from motor_test.poses import Hold
 from tests.profiles import profile
 
 BRAKE = Rest("brake")
@@ -99,3 +100,48 @@ def test_a_reversal_landing_on_zero_then_resting_restarts_the_hold_count():
     assert run(driver, [1.0, -1.0, None]) == [1.0, 0.0, BRAKE]
     assert run(driver, [2.0] * 50)[-1] == 2.0 and not driver.max_hold_tripped
     assert driver.update(2.0) == BRAKE and driver.max_hold_tripped
+
+
+def budget_profile():
+    # 6 V lasts 0.4 s (20 ticks, 0.05 a tick); 2 V lasts 2 s (100 ticks, 0.01 a tick).
+    return profile("hand", slew_v_per_s=1000.0, max_v=6.0, holds=(Hold(2.0, 2.0), Hold(6.0, 0.4), Hold(-2.0, 1.0)))
+
+
+def test_a_steady_high_voltage_trips_at_its_hold():
+    driver = MotorDriver(budget_profile())
+    assert run(driver, [6.0] * 20) == [6.0] * 20 and not driver.max_hold_tripped
+    assert driver.update(6.0) == BRAKE and driver.max_hold_tripped
+
+
+def test_a_steady_low_voltage_runs_for_its_longer_hold():
+    driver = MotorDriver(budget_profile())
+    assert run(driver, [2.0] * 100) == [2.0] * 100 and not driver.max_hold_tripped
+    assert driver.update(2.0) == BRAKE and driver.max_hold_tripped
+
+
+def test_mixed_voltages_share_one_budget():
+    driver = MotorDriver(budget_profile())
+    run(driver, [6.0] * 10)  # half the budget
+    assert run(driver, [2.0] * 50) == [2.0] * 50 and not driver.max_hold_tripped  # the other half
+    assert driver.update(2.0) == BRAKE and driver.max_hold_tripped
+
+
+def test_any_rest_refills_the_budget():
+    driver = MotorDriver(budget_profile())
+    run(driver, [6.0] * 19)
+    driver.update(None)
+    assert run(driver, [6.0] * 20) == [6.0] * 20 and not driver.max_hold_tripped
+
+
+def test_a_long_pose_is_stopped_at_the_hold_not_its_requested_length():
+    driver = MotorDriver(budget_profile())
+    assert run(driver, [6.0] * 30).count(6.0) == 20 and driver.max_hold_tripped
+
+
+def test_slewing_through_zero_spends_no_budget():
+    # 1 V per tick; every hold is 1 s, so each tick at nonzero volts spends 0.02 and 50 such ticks spend it all.
+    driver = MotorDriver(profile("pivot", slew_v_per_s=50.0))
+    assert run(driver, [1.0, -1.0]) == [1.0, 0.0]  # 1 nonzero tick spent; the 0 V tick spends nothing
+    held = run(driver, [-2.0] * 49)  # -1 V, then 48 at -2 V: 49 more, 50 in all
+    assert held[0] == -1.0 and held[-1] == -2.0 and not driver.max_hold_tripped
+    assert driver.update(-2.0) == BRAKE and driver.max_hold_tripped
