@@ -49,13 +49,13 @@ WATCHDOG_S = 10  # WatchdogSec in deploy/jack.service
 
 def test_demo_cycle_is_four_and_a_half_seconds_inside_the_watchdog():
     motor_a, motor_b = main.demo_cycle()
-    assert len(motor_b) * STEP_S == pytest.approx(4.5)
-    assert len(motor_b) * STEP_S * 2 < WATCHDOG_S
+    assert len(motor_a) * STEP_S == pytest.approx(4.5)
+    assert len(motor_a) * STEP_S * 2 < WATCHDOG_S
 
 
-def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_a_off():
+def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_b_off():
     motor_a, motor_b = main.demo_cycle()
-    assert motor_b == (
+    assert motor_a == (
         [341] * 5  # close: +1 V for 0.25 s
         + [0] * 30  # rest 1.5 s
         + [-683] * 10  # relax: -2 V for 0.5 s
@@ -63,14 +63,14 @@ def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_a_off():
         + [-410, -819, -1229, -1638, -2048]  # open fully: ramp 0 -> -6 V over 0.25 s
         + [-2048] * 10  # then hold -6 V for 0.5 s
     )
-    assert motor_a == [0] * len(motor_b)
+    assert motor_b == [0] * len(motor_a)
 
 
 @pytest.mark.parametrize("seed", range(20))
-def test_speaking_cycle_plays_a_random_phrase_on_the_mouth_with_motor_a_off(seed):
+def test_speaking_cycle_plays_a_random_phrase_on_the_mouth_with_motor_b_off(seed):
     motor_a, motor_b = main.speaking_cycle(random.Random(seed))
-    assert motor_b == segment_profile(random_phrase(random.Random(seed)), main.SUPPLY_VOLTS, STEP_S)
-    assert motor_a == [0] * len(motor_b)
+    assert motor_a == segment_profile(random_phrase(random.Random(seed)), main.SUPPLY_VOLTS, STEP_S)
+    assert motor_b == [0] * len(motor_a)
 
 
 def test_speaking_phrases_ping_the_watchdog_in_time():

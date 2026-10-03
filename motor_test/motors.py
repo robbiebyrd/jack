@@ -17,8 +17,8 @@ class MotorSpec:
 
 
 MOTORS: tuple[MotorSpec, ...] = (
-    MotorSpec("mouth", HAT1_ADDRESS, "B", two_sided=False),
-    MotorSpec("hand", HAT1_ADDRESS, "A", two_sided=False),
+    MotorSpec("mouth", HAT1_ADDRESS, "A", two_sided=False),
+    MotorSpec("hand", HAT1_ADDRESS, "B", two_sided=False),
     MotorSpec("pivot", HAT2_ADDRESS, "A", two_sided=True),
     MotorSpec("elbow", HAT2_ADDRESS, "B", two_sided=False),
 )

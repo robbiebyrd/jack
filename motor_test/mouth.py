@@ -1,4 +1,4 @@
-"""Mouth poses for the animatronic head (motor B), as (start_volts, end_volts, seconds) segments.
+"""Mouth poses for the animatronic head (motor A), as (start_volts, end_volts, seconds) segments.
 
 Values come from Boss's calibration (SPEC.md): closed and relaxed open hold
 without power once reached; fully open holds only while -6 V is applied, which

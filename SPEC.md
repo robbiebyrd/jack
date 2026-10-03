@@ -10,7 +10,7 @@ whole chain works: push → Pi pulls → app restarts → motor output moves.
 
 Next, Jack talks: Boss speaks into a Mumble client on a computer on the
 same LAN, Jack plays the voice from its speaker, and the animatronic's
-mouth (motor B) moves in sync with it (see "Talking").
+mouth (motor A) moves in sync with it (see "Talking").
 
 Next, show control: a second HAT adds three motors (hand, arm pivot,
 elbow), and an HTTP and an OSC server let an external show controller
@@ -57,7 +57,7 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 ## Smoke test behavior (`main.py`)
 
 Purpose: find which voltages move the animatronic head's mouth (driven by
-motor B) and how. The talk loop (see "Talking") replaces this demo in
+motor A) and how. The talk loop (see "Talking") replaces this demo in
 `main.py`; the calibration table below stays the basis for its settings. The
 numbered behaviour below is that retired demo, kept for `speaking_cycle` and
 `demo_cycle`, which `main.py` still defines.
@@ -76,7 +76,7 @@ prefer the closed and relaxed-open poses and keep fully open short.
 1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
    its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
    terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
-2. **Motor B (the mouth)** imitates speaking until control inputs (audio,
+2. **Motor A (the mouth)** imitates speaking until control inputs (audio,
    DMX, websockets) are wired in. Each cycle plays a fresh random phrase from
    `motor_test/speech.py`, at most 4.5 s long:
    - 1–4 words of 1–3 syllables; 0.05–0.15 s between syllables, 0.1–0.3 s
@@ -89,7 +89,7 @@ prefer the closed and relaxed-open poses and keep fully open short.
    `MOUTH_DEMO` (close, rest 1.5 s, relax, rest 1.5 s, ramped full open for
    0.5 s; 4.5 s) remains available through `main.demo_cycle()` for checking
    the mechanism.
-3. **Motor A** held 0 V for the whole cycle. Now motor A is the hand: it
+3. **Motor B** held 0 V for the whole cycle. Now motor B is the hand: it
    follows show control and rests when uncommanded (the demo functions
    still keep it at 0 V).
 4. Repeat the cycle back-to-back, with no pause, until the process is
@@ -193,9 +193,9 @@ it daemon or the process can't exit. License: GPLv3.
 One loop in `main.py`'s process, **paced by the sound card**: each tick
 takes the next 20 ms frame of voice from a queue (or 20 ms of silence if
 none arrived), writes it to ALSA (the blocking write is the clock),
-updates the envelope, computes the mouth voltage and drives motor B.
+updates the envelope, computes the mouth voltage and drives motor A.
 With show control (see "Show control") the same tick also drives the
-hand (motor A), pivot and elbow from the command board, and in `show` mode
+hand (motor B), pivot and elbow from the command board, and in `show` mode
 the mouth too; the hand follows show control and rests when uncommanded.
 
 - **Sources in:** the loop doesn't know where audio comes from. Each
@@ -226,9 +226,9 @@ while falling (coefficient e^(−tick/τ)).
 ### Mouth control (`lip_sync.py`)
 
 A pure, tick-based state machine: smoothed level in, signed volts for
-motor B out.
+motor A out.
 
-| State | Motor B | Next |
+| State | Motor A | Next |
 |---|---|---|
 | Closed | 0 V (short brake; the mouth holds closed unpowered) | level ≥ `GATE_OPEN_DB` → Open |
 | Open | −(`OPEN_MIN_V` + (`OPEN_MAX_V` − `OPEN_MIN_V`) × loudness), loudness = (level scaled 0..1 between `GATE_OPEN_DB` and `FULL_DB`, clamped) ^ `OPEN_CURVE` | level < `GATE_CLOSE_DB` → Closing |
@@ -325,15 +325,16 @@ source of movement switches.
 
 | Name | Board | Channel | Rest | Continuous range |
 |---|---|---|---|---|
-| `mouth` | `0x40` | B | closed | 0.0 … 1.0 (open) |
-| `hand` | `0x40` | A | outstretched | 0.0 … 1.0 (curled inward) |
+| `mouth` | `0x40` | A | closed | 0.0 … 1.0 (open) |
+| `hand` | `0x40` | B | outstretched | 0.0 … 1.0 (curled inward) |
 | `pivot` | `0x41` | A | centred | −1.0 (left) … 0.0 … +1.0 (right) |
 | `elbow` | `0x41` | B | 90° down | 0.0 … 1.0 (up, towards 30°) |
 
 - `motor_test/motors.py` (pure) is the registry: name, board address,
   channel, and whether the range is one-sided or two-sided (pivot).
-- Boss wires the new motors to these channels. Nothing is wired yet
-  (2026-10-02); hand, pivot and elbow are uncalibrated.
+- Boss wires the new motors to these channels. On the first HAT, Boss
+  confirmed (2026-10-02) the mouth is on channel A and the hand on B; hand,
+  pivot and elbow are uncalibrated.
 - Both boards are required: if either fails at startup the app exits with a
   clear message and systemd keeps retrying (no silent degraded mode).
 - Every motor is braked at startup, each HAT's motors as soon as that HAT
@@ -731,11 +732,11 @@ support them:
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.demo_cycle` holds motor A at 0 V (the retired demo; in the app
-    motor A is the hand, driven by show control) and plays the mouth demo
+  - `main.demo_cycle` holds motor B at 0 V (the retired demo; in the app
+    motor B is the hand, driven by show control) and plays the mouth demo
     (+341 ×5, 0 ×30, −683 ×10, 0 ×30, the 5-step ramp, −2048 ×10) over a
     4.5 s cycle, inside the 10 s watchdog with two cycles to spare.
-  - `main.speaking_cycle` plays `random_phrase` on the mouth with motor A
+  - `main.speaking_cycle` plays `random_phrase` on the mouth with motor B
     at 0 V, and consecutive cycles differ.
   - `random_phrase`, over 200 seeds: fits in 4.5 s, whole 50 ms steps,
     voltages within −6…+1 V, every opening ended by a close, ends closed

@@ -95,18 +95,18 @@ def watchdog_while_connected(mumble_client) -> Callable[[], None]:
 
 
 def speaking_cycle(rng: random.Random) -> list[list[int]]:
-    """One random talking phrase on the mouth, with motor A off. Counts are [motor A, motor B]."""
+    """One random talking phrase on the mouth, with motor B off. Counts are [motor A, motor B]."""
     return _mouth_only(random_phrase(rng))
 
 
 def demo_cycle() -> list[list[int]]:
-    """MOUTH_DEMO on the mouth, with motor A off. Counts are [motor A, motor B]."""
+    """MOUTH_DEMO on the mouth, with motor B off. Counts are [motor A, motor B]."""
     return _mouth_only(MOUTH_DEMO)
 
 
 def _mouth_only(segments: tuple[Segment, ...]) -> list[list[int]]:
     mouth = segment_profile(segments, SUPPLY_VOLTS, STEP_S)
-    return [constant_profile(0.0, SUPPLY_VOLTS, len(mouth)), mouth]
+    return [mouth, constant_profile(0.0, SUPPLY_VOLTS, len(mouth))]
 
 
 def mumble_password(environ: Mapping[str, str] = os.environ) -> str:
