@@ -7,9 +7,9 @@ import urllib.request
 
 import pytest
 
-from motor_test.control_board import ControlBoard
-from motor_test import http_server
-from motor_test.http_server import MAX_BODY_BYTES, start_http_server
+from jack.show.control.control_board import ControlBoard
+from jack.adapters.network import http_server
+from jack.adapters.network.http_server import MAX_BODY_BYTES, start_http_server
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
 

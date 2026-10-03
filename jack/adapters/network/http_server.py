@@ -11,9 +11,9 @@ from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from motor_test.control_board import ControlBoard
-from motor_test.poses import MotorProfile
-from motor_test.show_commands import CommandError, apply, http_command
+from jack.show.control.control_board import ControlBoard
+from jack.show.motion.poses import MotorProfile
+from jack.show.control.show_commands import CommandError, apply, http_command
 
 MAX_BODY_BYTES = 4096
 # A phone dropping Wi-Fi mid-request must not hold a server thread forever.

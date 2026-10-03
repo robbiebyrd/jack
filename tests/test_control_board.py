@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from motor_test.control_board import ControlBoard
+from jack.show.control.control_board import ControlBoard
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
 

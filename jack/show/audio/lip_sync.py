@@ -7,10 +7,10 @@ stall budget (its measured holds) closes and stays closed until a pause. See "Mo
 
 from enum import Enum
 
-from motor_test.pcm import TICK_S
-from motor_test.poses import MotorProfile
-from motor_test.stall_budget import StallBudget
-from motor_test.talk_settings import TalkSettings
+from jack.show.audio.pcm import TICK_S
+from jack.show.motion.poses import MotorProfile
+from jack.show.motion.stall_budget import StallBudget
+from jack.show.audio.talk_settings import TalkSettings
 
 
 class _State(Enum):

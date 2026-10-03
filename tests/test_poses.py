@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from motor_test.poses import Hold, Pose, load_profiles
+from jack.show.motion.poses import Hold, Pose, load_profiles
 from tests.profiles import HAND, MOUTH, PIVOT, profile
 
 SUPPLY = 12.0

@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.ramp import PWM_MAX_COUNT, constant_profile, ramp_profile, segment_profile, square_profile, whole_steps
+from jack.show.motion.ramp import PWM_MAX_COUNT, constant_profile, ramp_profile, segment_profile, square_profile, whole_steps
 
 
 def test_six_volts_on_twelve_volt_supply_peaks_at_half_duty():

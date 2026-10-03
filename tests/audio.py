@@ -4,7 +4,7 @@ import math
 import wave
 from array import array
 
-from motor_test.pcm import FRAME_SAMPLES, SAMPLE_RATE_HZ
+from jack.show.audio.pcm import FRAME_SAMPLES, SAMPLE_RATE_HZ
 
 
 def constant_frame(value: int) -> bytes:

@@ -10,8 +10,8 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from motor_test.motors import MOTOR_NAMES, motor_spec
-from motor_test.poses import MotorProfile
+from jack.show.motion.motors import MOTOR_NAMES, motor_spec
+from jack.show.motion.poses import MotorProfile
 
 MOUTH_MODES = ("live", "show")
 

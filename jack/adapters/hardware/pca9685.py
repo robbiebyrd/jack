@@ -9,7 +9,7 @@ import math
 import time
 from typing import Protocol
 
-from motor_test.ramp import PWM_MAX_COUNT, PWM_RESOLUTION
+from jack.show.motion.ramp import PWM_MAX_COUNT, PWM_RESOLUTION
 
 MODE1 = 0x00
 PRESCALE = 0xFE

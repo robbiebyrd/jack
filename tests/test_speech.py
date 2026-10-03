@@ -3,8 +3,8 @@ import random
 
 import pytest
 
-from motor_test.mouth import STEP_S
-from motor_test.speech import (
+from jack.show.motion.mouth import STEP_S
+from jack.show.motion.speech import (
     EMPHASIS_CHANCE,
     MAX_PHRASE_S,
     PHRASE_PAUSE_S,

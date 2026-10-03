@@ -1,12 +1,12 @@
 import pytest
 
-from motor_test.control_board import ControlBoard
-from motor_test.envelope import EnvelopeFollower, rms_dbfs
-from motor_test.lip_sync import MouthController
-from motor_test.pcm import TICK_S, TICKS_PER_SECOND, silence
-from motor_test.ramp import volts_to_count
-from motor_test.talk_loop import run_talk_loop
-from motor_test.talk_settings import TalkSettings
+from jack.show.control.control_board import ControlBoard
+from jack.show.audio.envelope import EnvelopeFollower, rms_dbfs
+from jack.show.audio.lip_sync import MouthController
+from jack.show.audio.pcm import TICK_S, TICKS_PER_SECOND, silence
+from jack.show.motion.ramp import volts_to_count
+from jack.application.talk_loop import run_talk_loop
+from jack.show.audio.talk_settings import TalkSettings
 from tests.audio import constant_frame
 from tests.fakes import FakeClock, MotorThatFailsToStop, RecordingMotor, RecordingSink, ScriptedSource, drives, no_op
 from tests.profiles import PROFILES, profile

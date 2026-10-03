@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.motors import HAT1_ADDRESS, HAT2_ADDRESS, MOTOR_NAMES, MOTORS, MotorSpec, motor_spec
+from jack.show.motion.motors import HAT1_ADDRESS, HAT2_ADDRESS, MOTOR_NAMES, MOTORS, MotorSpec, motor_spec
 
 
 def test_the_four_motors_and_where_they_are_wired():

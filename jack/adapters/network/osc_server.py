@@ -7,7 +7,7 @@ from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.osc_server import ThreadingOSCUDPServer
 
-from motor_test.osc_feedback import Destination, Message, Subscribers, state_messages
+from jack.show.control.osc_feedback import Destination, Message, Subscribers, state_messages
 
 FEEDBACK_INTERVAL_S = 0.02
 

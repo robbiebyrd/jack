@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.mouth import CLOSE, OPEN_RAMP_S, RELAX, describe, hold, open_fully, ramp, rest
+from jack.show.motion.mouth import CLOSE, OPEN_RAMP_S, RELAX, describe, hold, open_fully, ramp, rest
 
 
 def test_hold_keeps_one_level():

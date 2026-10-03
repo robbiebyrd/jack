@@ -2,8 +2,8 @@ import threading
 
 import pytest
 
-from motor_test.frame_queue import FrameQueue
-from motor_test.pcm import FRAME_BYTES
+from jack.show.audio.frame_queue import FrameQueue
+from jack.show.audio.pcm import FRAME_BYTES
 from tests.audio import constant_frame
 
 

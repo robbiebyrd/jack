@@ -15,8 +15,8 @@ import py2tosc
 from py2tosc import Value, ui
 from py2tosc.enums import ButtonType, Conversion
 
-from motor_test.motors import motor_spec
-from motor_test.poses import MotorProfile
+from jack.show.motion.motors import motor_spec
+from jack.show.motion.poses import MotorProfile
 
 DEFAULT_RECEIVE_PORT = 21601
 DEFAULT_OUT = Path(__file__).resolve().parent.parent / "touchosc" / "jack.tosc"
@@ -139,7 +139,7 @@ def _slug(text: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     from main import POSES_PATHS, SUPPLY_VOLTS
-    from motor_test.poses import load_profiles
+    from jack.show.motion.poses import load_profiles
 
     parser = argparse.ArgumentParser(description="Write a TouchOSC layout for Jack.")
     parser.add_argument("--port", type=int, default=DEFAULT_RECEIVE_PORT, help="the port TouchOSC receives on (1024-65535)")

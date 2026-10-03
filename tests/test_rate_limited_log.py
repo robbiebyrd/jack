@@ -1,4 +1,4 @@
-from motor_test.rate_limited_log import RateLimitedLog
+from jack.support.rate_limited_log import RateLimitedLog
 from tests.fakes import FakeClock
 
 

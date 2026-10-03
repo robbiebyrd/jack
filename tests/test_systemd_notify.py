@@ -1,4 +1,4 @@
-from motor_test.systemd_notify import notify, socket_address
+from jack.adapters.system.systemd_notify import notify, socket_address
 
 
 def test_notify_sends_message_as_one_datagram(notify_socket):

@@ -5,10 +5,10 @@ import socket
 import pytest
 
 import main
-from motor_test.mouth import STEP_S
-from motor_test.ramp import segment_profile
-from motor_test.speech import MAX_PHRASE_S, random_phrase
-from motor_test.talk_settings import TalkSettings
+from jack.show.motion.mouth import STEP_S
+from jack.show.motion.ramp import segment_profile
+from jack.show.motion.speech import MAX_PHRASE_S, random_phrase
+from jack.show.audio.talk_settings import TalkSettings
 from tests.fakes import RecordingBus
 
 

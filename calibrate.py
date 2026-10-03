@@ -13,12 +13,12 @@ import time
 from smbus2 import SMBus
 
 from main import I2C_BUS, POSES_PATHS, PWM_FREQ_HZ, STEP_S, SUPPLY_VOLTS
-from motor_test.calibration import MAX_MOVE_S, USAGE, run_calibration
-from motor_test.motors import MOTOR_NAMES, motor_spec
-from motor_test.pca9685 import Pca9685
-from motor_test.poses import load_profiles
-from motor_test.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
-from motor_test.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
+from jack.application.calibration import MAX_MOVE_S, USAGE, run_calibration
+from jack.show.motion.motors import MOTOR_NAMES, motor_spec
+from jack.adapters.hardware.pca9685 import Pca9685
+from jack.show.motion.poses import load_profiles
+from jack.adapters.system.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
+from jack.adapters.hardware.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
 
 
 def main(argv: list[str] | None = None) -> int:

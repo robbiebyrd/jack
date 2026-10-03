@@ -1,5 +1,5 @@
-from motor_test.poses import Hold
-from motor_test.stall_budget import StallBudget
+from jack.show.motion.poses import Hold
+from jack.show.motion.stall_budget import StallBudget
 from tests.profiles import profile
 
 # 6 V lasts 0.4 s (20 ticks, 0.05 a tick); 2 V lasts 2 s (100 ticks, 0.01 a tick).

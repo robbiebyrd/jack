@@ -2,7 +2,7 @@ import dataclasses
 
 import pytest
 
-from motor_test.talk_settings import TalkSettings
+from jack.show.audio.talk_settings import TalkSettings
 
 
 def test_starting_values_match_the_spec():

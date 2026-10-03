@@ -14,25 +14,25 @@ from typing import NoReturn
 
 from smbus2 import SMBus
 
-from motor_test.alsa_sink import open_alsa_sink
-from motor_test.attempt_all import attempt_all
-from motor_test.control_board import MOUTH_MODES, ControlBoard
-from motor_test.http_server import start_http_server
-from motor_test.motors import MOTORS
-from motor_test.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
-from motor_test.mumble_voice import MumbleVoice, connect_mumble
-from motor_test.osc_feedback import Subscribers
-from motor_test.osc_server import OscEndpoint, start_feedback
-from motor_test.pca9685 import Pca9685
-from motor_test.poses import MotorProfile, load_profiles
-from motor_test.ramp import constant_profile, segment_profile
-from motor_test.rate_limited_log import RateLimitedLog
-from motor_test.show_commands import OscContext, handle_osc
-from motor_test.speech import random_phrase
-from motor_test.systemd_notify import notify
-from motor_test.talk_loop import run_talk_loop
-from motor_test.talk_settings import TalkSettings
-from motor_test.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
+from jack.adapters.audio.alsa_sink import open_alsa_sink
+from jack.support.attempt_all import attempt_all
+from jack.show.control.control_board import MOUTH_MODES, ControlBoard
+from jack.adapters.network.http_server import start_http_server
+from jack.show.motion.motors import MOTORS
+from jack.show.motion.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
+from jack.adapters.audio.mumble_voice import MumbleVoice, connect_mumble
+from jack.show.control.osc_feedback import Subscribers
+from jack.adapters.network.osc_server import OscEndpoint, start_feedback
+from jack.adapters.hardware.pca9685 import Pca9685
+from jack.show.motion.poses import MotorProfile, load_profiles
+from jack.show.motion.ramp import constant_profile, segment_profile
+from jack.support.rate_limited_log import RateLimitedLog
+from jack.show.control.show_commands import OscContext, handle_osc
+from jack.show.motion.speech import random_phrase
+from jack.adapters.system.systemd_notify import notify
+from jack.application.talk_loop import run_talk_loop
+from jack.show.audio.talk_settings import TalkSettings
+from jack.adapters.hardware.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
 
 I2C_BUS = 1
 PWM_FREQ_HZ = 50

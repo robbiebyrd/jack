@@ -1,8 +1,8 @@
 import pytest
 
-from motor_test.pca9685 import Pca9685
-from motor_test.ramp import PWM_MAX_COUNT
-from motor_test.tb6612_motor import MOTOR_A, MOTOR_B, MOTOR_CHANNELS, MotorChannels, Tb6612Motor
+from jack.adapters.hardware.pca9685 import Pca9685
+from jack.show.motion.ramp import PWM_MAX_COUNT
+from jack.adapters.hardware.tb6612_motor import MOTOR_A, MOTOR_B, MOTOR_CHANNELS, MotorChannels, Tb6612Motor
 from tests.fakes import RecordingBus, off_count
 
 ADDRESS = 0x40

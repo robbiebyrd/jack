@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.pca9685 import Pca9685
+from jack.adapters.hardware.pca9685 import Pca9685
 from tests.fakes import RecordingBus
 
 ADDRESS = 0x40

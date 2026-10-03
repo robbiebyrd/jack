@@ -1,7 +1,7 @@
 import pytest
 
-from motor_test.pcm import FRAME_BYTES
-from motor_test.wav_source import WavSource
+from jack.show.audio.pcm import FRAME_BYTES
+from jack.adapters.audio.wav_source import WavSource
 from tests.audio import constant_frame, write_wav
 
 

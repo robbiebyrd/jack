@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.pcm import FRAME_BYTES, FRAME_SAMPLES, SAMPLE_RATE_HZ, TICK_S, TICKS_PER_SECOND, mix, silence
+from jack.show.audio.pcm import FRAME_BYTES, FRAME_SAMPLES, SAMPLE_RATE_HZ, TICK_S, TICKS_PER_SECOND, mix, silence
 from tests.audio import constant_frame
 
 

@@ -8,7 +8,7 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
-from motor_test.motors import MOTOR_NAMES
+from jack.show.motion.motors import MOTOR_NAMES
 
 Message = tuple[str, list]
 Destination = tuple[str, int]

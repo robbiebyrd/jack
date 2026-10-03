@@ -2,7 +2,7 @@
 
 import dataclasses
 
-from motor_test.poses import Hold, MotorProfile, Pose
+from jack.show.motion.poses import Hold, MotorProfile, Pose
 
 MOUTH = MotorProfile(
     calibrated=True, min_v=1.0, max_v=6.0, sign=-1, slew_v_per_s=48.0,

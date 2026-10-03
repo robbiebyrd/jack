@@ -2,8 +2,8 @@ import math
 
 import pytest
 
-from motor_test.envelope import FLOOR_DB, EnvelopeFollower, rms_dbfs
-from motor_test.pcm import silence
+from jack.show.audio.envelope import FLOOR_DB, EnvelopeFollower, rms_dbfs
+from jack.show.audio.pcm import silence
 from tests.audio import constant_frame, sine_frame
 
 

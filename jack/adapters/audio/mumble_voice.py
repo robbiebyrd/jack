@@ -7,8 +7,8 @@ FrameQueue so the talk loop can take one frame per talker per tick and mix them.
 import threading
 from collections.abc import Callable
 
-from motor_test.frame_queue import FrameQueue
-from motor_test.pcm import TICK_S
+from jack.show.audio.frame_queue import FrameQueue
+from jack.show.audio.pcm import TICK_S
 
 
 class MumbleVoice:

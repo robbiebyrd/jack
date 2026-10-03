@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.attempt_all import attempt_all
+from jack.support.attempt_all import attempt_all
 
 
 def test_runs_every_action_in_order():

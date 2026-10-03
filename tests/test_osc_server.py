@@ -9,8 +9,8 @@ from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.udp_client import SimpleUDPClient
 
-from motor_test.osc_feedback import Subscribers, state_messages
-from motor_test.osc_server import OscEndpoint, start_feedback
+from jack.show.control.osc_feedback import Subscribers, state_messages
+from jack.adapters.network.osc_server import OscEndpoint, start_feedback
 
 
 def serve(on_message=None):

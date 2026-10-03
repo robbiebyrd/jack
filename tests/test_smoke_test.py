@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.smoke_test import run_generated_loop, run_profiles_loop
+from jack.application.smoke_test import run_generated_loop, run_profiles_loop
 from tests.fakes import MotorThatFailsToStop, RecordingMotor, drives, no_op
 
 

@@ -7,7 +7,7 @@ network delivers faster than the loop plays, the oldest audio is dropped so dela
 import threading
 from collections import deque
 
-from motor_test.pcm import FRAME_BYTES
+from jack.show.audio.pcm import FRAME_BYTES
 
 
 class FrameQueue:

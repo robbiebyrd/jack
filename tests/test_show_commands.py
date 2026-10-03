@@ -3,10 +3,10 @@ import math
 
 import pytest
 
-from motor_test.control_board import ControlBoard
-from motor_test.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
-from motor_test.rate_limited_log import RateLimitedLog
-from motor_test.show_commands import (
+from jack.show.control.control_board import ControlBoard
+from jack.show.control.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
+from jack.support.rate_limited_log import RateLimitedLog
+from jack.show.control.show_commands import (
     CommandError, OscContext, Ping, RestCommand, SetMouthMode, SetValue, StartPose, StatusRequest, Subscribe, Unsubscribe,
     apply, handle_osc, http_command, osc_command,
 )

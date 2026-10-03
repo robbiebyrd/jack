@@ -13,11 +13,11 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
-from motor_test.control_board import MOUTH_MODES, ControlBoard
-from motor_test.motors import MOTOR_NAMES, motor_spec
-from motor_test.osc_feedback import MAX_SUBSCRIBERS, Destination, Message, Subscribers, state_messages
-from motor_test.poses import MotorProfile
-from motor_test.rate_limited_log import RateLimitedLog
+from jack.show.control.control_board import MOUTH_MODES, ControlBoard
+from jack.show.motion.motors import MOTOR_NAMES, motor_spec
+from jack.show.control.osc_feedback import MAX_SUBSCRIBERS, Destination, Message, Subscribers, state_messages
+from jack.show.motion.poses import MotorProfile
+from jack.support.rate_limited_log import RateLimitedLog
 
 OSC_PREFIX = "/jack"
 MAX_LOGGED_CHARS = 200

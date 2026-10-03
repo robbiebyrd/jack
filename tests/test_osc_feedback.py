@@ -1,4 +1,4 @@
-from motor_test.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
+from jack.show.control.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
 from tests.fakes import FakeClock
 
 A = ("10.10.0.22", 21601)

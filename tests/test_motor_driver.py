@@ -1,7 +1,7 @@
 import pytest
 
-from motor_test.motor_driver import MotorDriver, Rest
-from motor_test.poses import Hold
+from jack.show.motion.motor_driver import MotorDriver, Rest
+from jack.show.motion.poses import Hold
 from tests.profiles import profile
 
 BRAKE = Rest("brake")

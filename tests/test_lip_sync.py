@@ -1,9 +1,9 @@
 import pytest
 
-from motor_test.lip_sync import MouthController
-from motor_test.pcm import TICK_S
-from motor_test.poses import Hold
-from motor_test.talk_settings import TalkSettings
+from jack.show.audio.lip_sync import MouthController
+from jack.show.audio.pcm import TICK_S
+from jack.show.motion.poses import Hold
+from jack.show.audio.talk_settings import TalkSettings
 from tests.profiles import MOUTH, profile
 
 _DEFAULTS = TalkSettings()

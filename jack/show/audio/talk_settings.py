@@ -8,8 +8,8 @@ See the "Mouth control" table in SPEC.md.
 
 from dataclasses import dataclass
 
-from motor_test.pcm import TICK_S
-from motor_test.ramp import whole_steps
+from jack.show.audio.pcm import TICK_S
+from jack.show.motion.ramp import whole_steps
 
 
 @dataclass(frozen=True)

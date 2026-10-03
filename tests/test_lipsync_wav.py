@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import lipsync_wav
-from motor_test.talk_settings import TalkSettings
+from jack.show.audio.talk_settings import TalkSettings
 from tests.audio import write_wav
 
 

@@ -3,10 +3,10 @@
 import math
 from collections.abc import Callable
 
-from motor_test.mouth import Segment, describe, hold, ramp
-from motor_test.ports import MotorOutput
-from motor_test.poses import MotorProfile, Pose
-from motor_test.ramp import segment_profile
+from jack.show.motion.mouth import Segment, describe, hold, ramp
+from jack.application.ports import MotorOutput
+from jack.show.motion.poses import MotorProfile, Pose
+from jack.show.motion.ramp import segment_profile
 
 # Longest single move, so a typo can't hold the motor stalled against an end stop for long.
 MAX_MOVE_S = 3.0

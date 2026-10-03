@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
-from motor_test.mumble_voice import MumbleVoice
-from motor_test.pcm import FRAME_BYTES
+from jack.adapters.audio.mumble_voice import MumbleVoice
+from jack.show.audio.pcm import FRAME_BYTES
 from tests.audio import constant_frame
 
 BOSS = {"session": 1, "name": "Boss"}

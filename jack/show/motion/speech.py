@@ -9,7 +9,7 @@ followed by a pause.
 
 import random
 
-from motor_test.mouth import STEP_S, Segment, hold, open_fully, rest
+from jack.show.motion.mouth import STEP_S, Segment, hold, open_fully, rest
 
 # A phrase is one playback cycle, and the watchdog is pinged once per cycle.
 MAX_PHRASE_S = 4.5

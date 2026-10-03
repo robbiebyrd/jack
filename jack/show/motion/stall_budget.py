@@ -5,8 +5,8 @@ nothing. Any rest refills it. Shared by show control (motor_driver.py) and lip s
 See "Command board" in SPEC.md.
 """
 
-from motor_test.pcm import TICK_S
-from motor_test.poses import MotorProfile
+from jack.show.audio.pcm import TICK_S
+from jack.show.motion.poses import MotorProfile
 
 # Float sums of exact tick fractions can land a hair over 1; a whole budget is still within the hold.
 BUDGET_TOLERANCE = 1e-9

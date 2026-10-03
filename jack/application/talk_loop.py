@@ -8,16 +8,16 @@ every other motor follows the show-control board. See "Talk loop" in SPEC.md.
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 
-from motor_test.attempt_all import attempt_all
-from motor_test.control_board import ControlBoard
-from motor_test.envelope import EnvelopeFollower, rms_dbfs
-from motor_test.lip_sync import MouthController
-from motor_test.motor_driver import Drive, MotorDriver, Rest
-from motor_test.pcm import TICK_S, TICKS_PER_SECOND, mix, silence
-from motor_test.ports import AudioSink, MotorOutput, VoiceSource
-from motor_test.poses import MotorProfile
-from motor_test.ramp import volts_to_count
-from motor_test.talk_settings import TalkSettings
+from jack.support.attempt_all import attempt_all
+from jack.show.control.control_board import ControlBoard
+from jack.show.audio.envelope import EnvelopeFollower, rms_dbfs
+from jack.show.audio.lip_sync import MouthController
+from jack.show.motion.motor_driver import Drive, MotorDriver, Rest
+from jack.show.audio.pcm import TICK_S, TICKS_PER_SECOND, mix, silence
+from jack.application.ports import AudioSink, MotorOutput, VoiceSource
+from jack.show.motion.poses import MotorProfile
+from jack.show.motion.ramp import volts_to_count
+from jack.show.audio.talk_settings import TalkSettings
 
 
 def run_talk_loop(

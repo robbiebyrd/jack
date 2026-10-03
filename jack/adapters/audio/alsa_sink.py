@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 
-from motor_test.pcm import FRAME_SAMPLES, SAMPLE_RATE_HZ
+from jack.show.audio.pcm import FRAME_SAMPLES, SAMPLE_RATE_HZ
 
 # snd_strerror(-EPIPE): how alsaaudio reports that the device ran dry (an underrun).
 UNDERRUN_MESSAGE = "Broken pipe"

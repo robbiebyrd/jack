@@ -5,7 +5,7 @@ import tempfile
 
 import pytest
 
-from motor_test import service_guard
+from jack.adapters.system import service_guard
 
 
 @pytest.fixture

@@ -3,7 +3,7 @@
 import wave
 from pathlib import Path
 
-from motor_test.pcm import FRAME_BYTES, FRAME_SAMPLES, SAMPLE_BYTES, SAMPLE_RATE_HZ
+from jack.show.audio.pcm import FRAME_BYTES, FRAME_SAMPLES, SAMPLE_BYTES, SAMPLE_RATE_HZ
 
 
 class WavSource:

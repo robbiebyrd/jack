@@ -6,11 +6,11 @@ import time
 from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 
-from motor_test.control_board import ControlBoard
-from motor_test.osc_feedback import Subscribers, state_messages
-from motor_test.osc_server import OscEndpoint, start_feedback
-from motor_test.rate_limited_log import RateLimitedLog
-from motor_test.show_commands import OscContext, handle_osc
+from jack.show.control.control_board import ControlBoard
+from jack.show.control.osc_feedback import Subscribers, state_messages
+from jack.adapters.network.osc_server import OscEndpoint, start_feedback
+from jack.support.rate_limited_log import RateLimitedLog
+from jack.show.control.show_commands import OscContext, handle_osc
 from tests.profiles import PROFILES
 
 

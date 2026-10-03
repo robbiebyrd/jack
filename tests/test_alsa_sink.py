@@ -1,6 +1,6 @@
 import pytest
 
-from motor_test.alsa_sink import AlsaSink
+from jack.adapters.audio.alsa_sink import AlsaSink
 from tests.audio import constant_frame
 
 
