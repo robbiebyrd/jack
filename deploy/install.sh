@@ -20,6 +20,11 @@ apt-get install -y git python3-smbus2 raspi-config mumble-server python3-alsaaud
 # 0 = enable in raspi-config's non-interactive mode
 raspi-config nonint do_i2c 0
 
+# Keep the journal across reboots, so a crash or hang leaves the logs from before it.
+install -d -m 0755 /etc/systemd/journald.conf.d
+printf '[Journal]\nStorage=persistent\n' > /etc/systemd/journald.conf.d/persistent.conf
+systemctl restart systemd-journald
+
 if ! id jack &>/dev/null; then
   useradd --system --user-group --no-create-home --shell /usr/sbin/nologin --groups i2c,audio jack
 fi

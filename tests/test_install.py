@@ -28,3 +28,10 @@ def test_a_failed_app_start_does_not_abort_the_installer():
     assert len(restart_lines) == 1
     assert "||" in restart_lines[0]
     assert not any("enable --now jack.service" in line for line in lines)
+
+
+def test_the_journal_survives_reboots_so_a_crash_leaves_its_logs():
+    script = INSTALL.read_text()
+    assert "/etc/systemd/journald.conf.d/persistent.conf" in script
+    assert "Storage=persistent" in script
+    assert "systemctl restart systemd-journald" in script
