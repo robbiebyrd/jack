@@ -267,6 +267,7 @@ basis says calibration. The rows marked "now poses.toml" no longer live in
 |---|---|---|
 | `OPEN_MIN_V` / `OPEN_MAX_V` (now poses.toml `[mouth]` `min_v` / `max_v`) | 1 V / 6 V | `OPEN_MAX_V`: calibration, fully open. `OPEN_MIN_V`: Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little (was 2 V, the calibrated relaxed open). Risk: the calibration never tested below 2 V; it is unknown that 1 V moves the mouth |
 | `OPEN_SLEW_V_PER_S` (now poses.toml `[mouth]` `slew_v_per_s`) | 48 V/s | Boss: respond twice as fast (2026-09-28). Risk: the calibrated ramp was 24 V/s (6 V over `OPEN_RAMP_S` = 0.25 s) because stepping to -6 V strained the motor; 48 V/s trades some of that margin for speed |
+| `MOUTH_GAIN_DB` | 0 dB | Boss, 2026-10-03: the mouth barely moved with ROC audio. Added to the smoothed level before the gates, so only the mouth reacts more; the sound is unchanged. Applies to every source (the level is measured after mixing). Refused if it would lift silence (−90 dB) to the close gate |
 | `OPEN_CURVE` | 2.0 | Boss: too sensitive, wanted a curve (2026-09-28); medium syllables open ~a quarter |
 | `CLOSE_V` / `CLOSE_S` (now poses.toml `[mouth]` `rest_pulse_v` / `rest_pulse_s`) | 0.5 V / 0.08 s | Boss: respond twice as fast (2026-09-28) (whole 20 ms ticks); the random-speech demo Boss saw as lifelike used 0.5 V for 0.15 s |
 | `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.04 s | `ATTACK_S` guess; `RELEASE_S`: Boss: respond twice as fast (2026-09-28) |

@@ -8,6 +8,7 @@ See the "Mouth control" table in SPEC.md.
 
 from dataclasses import dataclass
 
+from jack.show.audio.envelope import FLOOR_DB
 from jack.show.audio.pcm import TICK_S
 from jack.show.motion.ramp import whole_steps
 
@@ -15,6 +16,8 @@ from jack.show.motion.ramp import whole_steps
 @dataclass(frozen=True)
 class TalkSettings:
     open_curve: float = 2.0
+    # Added to the voice's level before the gates: the mouth reacts to a quieter voice; the sound doesn't change.
+    mouth_gain_db: float = 0.0
     attack_s: float = 0.01
     release_s: float = 0.04
     gate_open_db: float = -22.0
@@ -31,6 +34,11 @@ class TalkSettings:
             raise ValueError(
                 "gates must satisfy gate_close_db < gate_open_db < full_db, got "
                 f"{self.gate_close_db}, {self.gate_open_db}, {self.full_db}"
+            )
+        if FLOOR_DB + self.mouth_gain_db >= self.gate_close_db:
+            raise ValueError(
+                f"mouth_gain_db {self.mouth_gain_db} would lift silence ({FLOOR_DB} dB) to the close gate "
+                f"({self.gate_close_db} dB) and hold the mouth open"
             )
         if self.open_curve < 1.0:
             raise ValueError(f"open_curve must be at least 1.0, got {self.open_curve}")

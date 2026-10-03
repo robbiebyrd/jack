@@ -280,3 +280,7 @@ def test_a_missing_roc_recv_exits_saying_what_to_install(monkeypatch, tmp_path):
     with pytest.raises(SystemExit) as exit_info:
         main.start_roc_voice(main.roc_config({}), 10)
     assert exit_info.value.code == "roc-recv not found: sudo apt install roc-toolkit-tools"
+
+
+def test_mouth_gain_can_be_set_in_jack_env():
+    assert main.talk_settings({"JACK_MOUTH_GAIN_DB": "10"}).mouth_gain_db == 10.0

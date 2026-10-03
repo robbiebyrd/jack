@@ -91,6 +91,11 @@ and 60 ms broke up.
 
 ### Tuning the lip sync
 
+If the mouth barely moves (for example with a quiet ROC stream), raise `JACK_MOUTH_GAIN_DB` in
+`/etc/jack/jack.env`, e.g. `JACK_MOUTH_GAIN_DB=10`, and restart Jack. It makes only the mouth react
+more; the sound from Jack's speaker doesn't change. Each +10 dB makes a voice 10 dB quieter open
+the mouth as wide as before.
+
 Quickest: override any setting on the Pi. Add `JACK_<SETTING_NAME>` lines to `/etc/jack/jack.env`
 (names are the fields of `jack/show/audio/talk_settings.py`, upper-case) and restart. The mouth's
 volts are not among them: `min_v`, `max_v`, `slew_v_per_s`, `rest_pulse_v` and `rest_pulse_s` are

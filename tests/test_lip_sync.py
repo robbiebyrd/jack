@@ -118,3 +118,13 @@ def test_volts_and_close_pulse_come_from_the_mouth_profile():
 def test_a_mouth_without_a_rest_pulse_closes_straight_to_zero():
     controller = MouthController(TalkSettings(), profile("mouth", slew_v_per_s=1000.0, rest_pulse_v=0.0, rest_pulse_s=0.0))
     assert [controller.update(level) for level in (GATE, BELOW_CLOSE, BELOW_CLOSE)] == [-1.0, 0.0, 0.0]
+
+
+def test_mouth_gain_opens_the_mouth_for_a_quieter_voice():
+    # 10 dB under the open gate stays closed without gain, and opens to relaxed open with +10 dB.
+    assert unslewed().update(GATE - 10) == 0.0
+    assert unslewed(mouth_gain_db=10.0).update(GATE - 10) == -1.0
+
+
+def test_mouth_gain_scales_the_whole_range():
+    assert unslewed(mouth_gain_db=10.0).update(FULL - 10) == -6.0

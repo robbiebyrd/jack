@@ -36,6 +36,7 @@ class MouthController:
 
     def update(self, level_db: float) -> float:
         """Advance one tick with the current smoothed level and return the mouth voltage."""
+        level_db += self._settings.mouth_gain_db
         if level_db < self._settings.gate_close_db:
             self._waiting_for_pause = False
         if level_db >= self._settings.gate_open_db and not self._waiting_for_pause:
