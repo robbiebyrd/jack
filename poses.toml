@@ -3,6 +3,7 @@
 # then: sudo systemctl restart jack
 # Volts are signed: negative runs the motor "backward". min_v..max_v is the magnitude a
 # command value of just-above-0 .. 1.0 drives, in the direction `sign` (pivot: sign of "right").
+# holds: measured safe drive times; the hold at a voltage is interpolated from the points on its side of 0.
 
 [mouth]
 calibrated = true
@@ -11,6 +12,10 @@ max_v = 6.0          # fully open (calibration)
 sign = 1             # positive volts open the mouth (re-measured on channel A, 2026-10-02)
 slew_v_per_s = 48.0  # twice the calibrated 24 V/s ramp, Boss's call (2026-09-28)
 max_hold_s = 0.5     # safe drive time at 6 V (calibration 2026-10-02: 2 V 2 s, 6 V 0.5 s, -0.25 V 1 s, -5 V 0.25 s)
+holds = [
+  { volts = 2.0, seconds = 2.0 }, { volts = 6.0, seconds = 0.5 },
+  { volts = -0.25, seconds = 1.0 }, { volts = -5.0, seconds = 0.25 },
+]
 rest = "brake"
 rest_pulse_v = -0.5  # the mouth holds its pose unpowered, so resting needs a close pulse
 rest_pulse_s = 0.08
@@ -24,10 +29,14 @@ open = { volts = 6.0, seconds = 0.5 }
 [hand]
 calibrated = true
 min_v = 3.0          # moves both ways from 3 V (curl 3-6 V, open 0.5-6 V)
-max_v = 6.0
+max_v = 5.0          # opening holds were measured only to -5 V
 sign = 1             # positive curls
 slew_v_per_s = 24.0  # not measured
 max_hold_s = 0.5     # safe drive time at -5 V; 6-5 V 2 s, 3 V 5 s, -3 V 1 s, -1 V 4 s
+holds = [
+  { volts = 6.0, seconds = 2.0 }, { volts = 5.0, seconds = 2.0 }, { volts = 3.0, seconds = 5.0 },
+  { volts = -1.0, seconds = 4.0 }, { volts = -3.0, seconds = 1.0 }, { volts = -5.0, seconds = 0.5 },
+]
 rest = "brake"
 
 [hand.poses]
@@ -42,6 +51,10 @@ max_v = 7.0
 sign = 1             # positive swings right
 slew_v_per_s = 24.0  # not measured
 max_hold_s = 4.0     # safe drive time at 6-7 V
+holds = [
+  { volts = 6.0, seconds = 4.0 }, { volts = 7.0, seconds = 4.0 },
+  { volts = -6.0, seconds = 4.0 }, { volts = -7.0, seconds = 4.0 },
+]
 rest = "brake"
 
 [pivot.poses]
@@ -56,6 +69,7 @@ max_v = 2.0
 sign = 1             # unverified: which sign raises the elbow
 slew_v_per_s = 24.0
 max_hold_s = 1.0
+holds = [{ volts = 2.0, seconds = 1.0 }, { volts = -2.0, seconds = 1.0 }]  # placeholder
 rest = "brake"
 
 [elbow.poses]
