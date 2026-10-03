@@ -61,9 +61,15 @@ class RocVoice:
         self._thread.start()
 
     def take_frames(self) -> list[bytes]:
-        """The next frame while someone is sending; nothing for digital silence, so it mixes as no voice."""
-        frame = self._queue.take()
-        return [frame] if frame is not None and any(frame) else []
+        """The next frame of sound, skipping all queued digital silence so it mixes as no voice.
+
+        roc-recv writes silence continuously, so the queue never drains on its own; dropping every
+        queued silent frame at once keeps a backlog from delaying the next thing said.
+        """
+        while (frame := self._queue.take()) is not None:
+            if any(frame):
+                return [frame]
+        return []
 
     def close(self) -> None:
         """Stop roc-recv (SIGTERM, then a kill after the grace period) and the reader thread."""

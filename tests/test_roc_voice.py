@@ -164,3 +164,16 @@ def test_close_is_safe_to_call_twice(tmp_path, voices):
     voice.start()
     voice.close()
     voice.close()
+
+
+def test_queued_silence_is_skipped_at_once_so_speech_after_it_is_not_delayed(tmp_path, voices):
+    written = tmp_path / "written"
+    body = (
+        f"out.write({stereo(0, 0, frames=9) + stereo(6, 6)!r}); out.flush()\n"
+        f"open({str(written)!r}, 'w').write('done')\ntime.sleep(30)\n"
+    )
+    voice = voices(fake_roc_recv(tmp_path, body))
+    voice.start()
+    wait_for(written.exists)
+    time.sleep(0.2)  # the reader has queued all ten frames
+    assert voice.take_frames() == [constant_frame(6)]
