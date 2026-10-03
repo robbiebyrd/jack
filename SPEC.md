@@ -643,10 +643,10 @@ hexagonal layer, then by function:
 ```
 jack/
   show/                 pure logic: no hardware, network, sound card or systemd
-    audio/      pcm, envelope, frame_queue, lip_sync
+    audio/      pcm, envelope, frame_queue, lip_sync, talk_settings
     motion/     motors, poses, motor_driver, stall_budget, ramp, mouth, speech
     control/    control_board, show_commands, osc_feedback
-  application/  ports, talk_loop, talk_settings, calibration, smoke_test
+  application/  ports, talk_loop, calibration, smoke_test
   adapters/
     hardware/   pca9685, tb6612_motor
     audio/      alsa_sink, mumble_voice, wav_source
@@ -664,6 +664,11 @@ jack/
 - `adapters/` are the only modules that touch hardware, the network, the
   sound card or systemd.
 - `support/` holds small helpers any layer may use.
+- Imports only point down or sideways: `show/` imports only `show/` and
+  `support/`; `application/` adds `show/`; `adapters/` may import any
+  layer; `support/` imports only `support/`. A test reads every module's
+  imports and fails on one that points the wrong way. (`talk_settings`
+  sits in `show/audio/` because `lip_sync` reads it.)
 - Every directory is a package (`__init__.py`, empty). Modules are imported
   by full path, e.g. `from jack.show.motion.poses import load_profiles`.
 - The entry scripts stay at the repo root (`main.py`, `calibrate.py`,
