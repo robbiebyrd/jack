@@ -41,7 +41,8 @@ def test_http_routes_match_osc():
 
 def test_values_are_clamped_to_the_motors_range():
     assert osc("/jack/hand", 1.4) == SetValue("hand", 1.0, 1.4)
-    assert osc("/jack/hand", -0.2) == SetValue("hand", 0.0, -0.2)
+    assert osc("/jack/elbow", -0.2) == SetValue("elbow", 0.0, -0.2)
+    assert osc("/jack/hand", -1.5) == SetValue("hand", -1.0, -1.5)
     assert osc("/jack/pivot", -1.5) == SetValue("pivot", -1.0, -1.5)
 
 

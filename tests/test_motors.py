@@ -6,7 +6,7 @@ from motor_test.motors import HAT1_ADDRESS, HAT2_ADDRESS, MOTOR_NAMES, MOTORS, M
 def test_the_four_motors_and_where_they_are_wired():
     assert MOTORS == (
         MotorSpec("mouth", 0x40, "A", two_sided=False),
-        MotorSpec("hand", 0x40, "B", two_sided=False),
+        MotorSpec("hand", 0x40, "B", two_sided=True),
         MotorSpec("pivot", 0x41, "A", two_sided=True),
         MotorSpec("elbow", 0x41, "B", two_sided=False),
     )

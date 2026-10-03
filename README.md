@@ -42,7 +42,7 @@ mouth> q
 ssh -t 10.10.0.54 sudo systemctl start jack  # resume
 ```
 
-Negative volts open the mouth (0 V closed, about −6 V open). Poses ramp up from 0 V at the
+Positive volts open the mouth (0 V closed, about +6 V open). Poses ramp up from 0 V at the
 motor's `slew_v_per_s`, then hold. Moves run in 50 ms steps (durations must be whole steps),
 are capped at 3 s, and always end braked. The tool lists the motor's poses when it starts.
 Run it as the `jack` user: only `jack` can read `/etc/jack`, where the motor overrides live.
@@ -114,7 +114,7 @@ the motor (`JACK_CONTROL_TIMEOUT_S`).
 
 | Address | Arguments | Effect |
 |---|---|---|
-| `/jack/<motor>` | float | Continuous value (0…1; pivot −1…1) |
+| `/jack/<motor>` | float | Continuous value (0…1; hand and pivot −1…1) |
 | `/jack/<motor>/pose` | string, optional float | Named pose, optional duration (s) |
 | `/jack/<motor>/pose/<name>` | none, or a button value | That pose for its default duration |
 | `/jack/<motor>/rest` | none, or a button value | That motor to rest |
@@ -211,8 +211,8 @@ version, so check it against your layout.
   send keeps the subscription alive, so a layout in use stays subscribed; otherwise press it again
   within 60 s. Or set `JACK_OSC_REPLY_PORT` (see above) and send no value. A press arrives as a
   number, so the value, not the button, carries the port.
-- **Faders:** `/jack/hand`, `/jack/elbow` and `/jack/mouth` use 0 to 1. `/jack/pivot` uses -1 to
-  1, so set that fader's range to -1...1. Whether a held fader keeps resending while
+- **Faders:** `/jack/elbow` and `/jack/mouth` use 0 to 1. `/jack/hand` (open … curled) and
+  `/jack/pivot` (left … right) use -1 to 1, so set those faders' range to -1...1. Whether a held fader keeps resending while
   still is unverified. If it doesn't, a fader held still longer than the 0.5 s dead-man rests the
   motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's
   max hold still caps any hold). Whether TouchOSC re-sends values it receives is also unverified.
@@ -276,15 +276,15 @@ any mouth command is dropped.
 ### Motor settings: `poses.toml`
 
 `poses.toml` in the repo holds each motor's volts, slew, max hold, rest behaviour and named
-poses. Hand, pivot and elbow are marked uncalibrated placeholders until you measure them. To
+poses. The elbow is marked an uncalibrated placeholder until you measure it. To
 override on the Pi, create `/etc/jack/poses.toml` with only the keys you change, then
 `sudo systemctl restart jack`:
 
 ```toml
-[hand]
+[elbow]
 max_v = 3.0
-[hand.poses]
-curl = { volts = 3.0, seconds = 0.5 }
+[elbow.poses]
+up = { volts = 3.0, seconds = 0.5 }
 ```
 
 A mistake in either file stops the app with a one-line message in `journalctl -u jack`.

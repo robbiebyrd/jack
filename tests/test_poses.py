@@ -39,15 +39,27 @@ def all_motors(**extra_by_motor):
 def test_repo_poses_file_matches_the_spec():
     profiles = load_profiles([REPO_POSES], SUPPLY)
     mouth = profiles["mouth"]
-    assert (mouth.calibrated, mouth.min_v, mouth.max_v, mouth.sign) == (True, 1.0, 6.0, -1)
-    assert (mouth.slew_v_per_s, mouth.rest, mouth.rest_pulse_v, mouth.rest_pulse_s) == (48.0, "brake", 0.5, 0.08)
-    assert mouth.poses == {"close": Pose(1.0, 0.25), "relax": Pose(-2.0, 0.5), "open": Pose(-6.0, 0.5)}
-    for name, poses in (("hand", {"curl"}), ("pivot", {"left", "right"}), ("elbow", {"up"})):
-        placeholder = profiles[name]
-        assert placeholder.calibrated is False
-        assert (placeholder.max_v, placeholder.max_hold_s, placeholder.slew_v_per_s, placeholder.sign) == (2.0, 1.0, 24.0, 1)
-        assert set(placeholder.poses) == poses
-        assert all(abs(pose.volts) == 2.0 and pose.seconds == 0.5 for pose in placeholder.poses.values())
+    assert (mouth.calibrated, mouth.min_v, mouth.max_v, mouth.sign, mouth.max_hold_s) == (True, 1.0, 6.0, 1, 0.5)
+    assert (mouth.slew_v_per_s, mouth.rest, mouth.rest_pulse_v, mouth.rest_pulse_s) == (48.0, "brake", -0.5, 0.08)
+    assert mouth.poses == {"close": Pose(-1.0, 0.25), "relax": Pose(2.0, 0.5), "open": Pose(6.0, 0.5)}
+    hand = profiles["hand"]
+    assert (hand.calibrated, hand.min_v, hand.max_v, hand.sign, hand.max_hold_s) == (True, 3.0, 6.0, 1, 0.5)
+    assert (hand.slew_v_per_s, hand.rest, hand.rest_pulse_s) == (24.0, "brake", 0.0)
+    assert hand.poses == {"curl": Pose(6.0, 0.5), "open": Pose(-5.0, 0.5)}
+    pivot = profiles["pivot"]
+    assert (pivot.calibrated, pivot.min_v, pivot.max_v, pivot.sign, pivot.max_hold_s) == (True, 6.0, 7.0, 1, 4.0)
+    assert (pivot.slew_v_per_s, pivot.rest, pivot.rest_pulse_s) == (24.0, "brake", 0.0)
+    assert pivot.poses == {"left": Pose(-6.0, 2.0), "right": Pose(6.0, 2.0)}
+    elbow = profiles["elbow"]
+    assert elbow.calibrated is False
+    assert (elbow.max_v, elbow.max_hold_s, elbow.slew_v_per_s, elbow.sign) == (2.0, 1.0, 24.0, 1)
+    assert elbow.poses == {"up": Pose(2.0, 0.5)}
+
+
+def test_repo_poses_fit_inside_each_motors_max_hold():
+    for name, motor in load_profiles([REPO_POSES], SUPPLY).items():
+        for pose_name, pose in motor.poses.items():
+            assert pose.seconds <= motor.max_hold_s, f"{name} {pose_name}"
 
 
 def test_rest_pulse_ticks_counts_whole_ticks_and_is_zero_without_a_pulse():

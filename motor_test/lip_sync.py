@@ -18,7 +18,7 @@ class _State(Enum):
 
 
 class MouthController:
-    """State machine from level (dBFS) to signed volts for the mouth motor; negative opens."""
+    """State machine from level (dBFS) to signed volts for the mouth motor, opening in the direction of its `sign`."""
 
     def __init__(self, settings: TalkSettings, mouth: MotorProfile):
         self._settings = settings

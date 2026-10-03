@@ -6,46 +6,47 @@
 
 [mouth]
 calibrated = true
-min_v = 1.0          # smallest opening (lip-sync tuning, 2026-09-28)
+min_v = 1.0          # opens very slightly; kept for lip-sync fidelity (Boss, 2026-10-02)
 max_v = 6.0          # fully open (calibration)
-sign = -1            # negative volts open the mouth
+sign = 1             # positive volts open the mouth (re-measured on channel A, 2026-10-02)
 slew_v_per_s = 48.0  # twice the calibrated 24 V/s ramp, Boss's call (2026-09-28)
-max_hold_s = 1.0     # guess: fully open stalls against its end stop
+max_hold_s = 0.5     # safe drive time at 6 V (calibration 2026-10-02: 2 V 2 s, 6 V 0.5 s, -0.25 V 1 s, -5 V 0.25 s)
 rest = "brake"
-rest_pulse_v = 0.5   # the mouth holds its pose unpowered, so resting needs a close pulse
+rest_pulse_v = -0.5  # the mouth holds its pose unpowered, so resting needs a close pulse
 rest_pulse_s = 0.08
 
 [mouth.poses]
-close = { volts = 1.0, seconds = 0.25 }
-relax = { volts = -2.0, seconds = 0.5 }
-open = { volts = -6.0, seconds = 0.5 }
+close = { volts = -1.0, seconds = 0.25 }
+relax = { volts = 2.0, seconds = 0.5 }
+open = { volts = 6.0, seconds = 0.5 }
 
-# UNCALIBRATED placeholders until measured with: calibrate.py hand
+# The hand stays where it stops: positive volts curl it, negative open it (calibration 2026-10-02).
 [hand]
-calibrated = false
-min_v = 1.0
-max_v = 2.0
-sign = 1             # unverified: which sign curls the hand
-slew_v_per_s = 24.0
-max_hold_s = 1.0
+calibrated = true
+min_v = 3.0          # moves both ways from 3 V (curl 3-6 V, open 0.5-6 V)
+max_v = 6.0
+sign = 1             # positive curls
+slew_v_per_s = 24.0  # not measured
+max_hold_s = 0.5     # safe drive time at -5 V; 6-5 V 2 s, 3 V 5 s, -3 V 1 s, -1 V 4 s
 rest = "brake"
 
 [hand.poses]
-curl = { volts = 2.0, seconds = 0.5 }
+curl = { volts = 6.0, seconds = 0.5 }   # a full curl from open is 6 V for 1.5 s: three presses
+open = { volts = -5.0, seconds = 0.5 }  # a full open from curled is -5 V for 0.75 s: two presses
 
-# UNCALIBRATED placeholders until measured with: calibrate.py pivot
+# The pivot stays where it stops; 4 s at 6 V swings it fully left to right (calibration 2026-10-02).
 [pivot]
-calibrated = false
-min_v = 1.0
-max_v = 2.0
-sign = 1             # unverified: which sign swings right
-slew_v_per_s = 24.0
-max_hold_s = 1.0
+calibrated = true
+min_v = 6.0          # nothing smaller moves it
+max_v = 7.0
+sign = 1             # positive swings right
+slew_v_per_s = 24.0  # not measured
+max_hold_s = 4.0     # safe drive time at 6-7 V
 rest = "brake"
 
 [pivot.poses]
-left = { volts = -2.0, seconds = 0.5 }
-right = { volts = 2.0, seconds = 0.5 }
+left = { volts = -6.0, seconds = 2.0 }   # about centre to fully left
+right = { volts = 6.0, seconds = 2.0 }   # about centre to fully right
 
 # UNCALIBRATED placeholders until measured with: calibrate.py elbow
 [elbow]

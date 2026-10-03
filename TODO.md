@@ -4,24 +4,24 @@ Show control is live on the Pi (deployed 2026-10-02, commit 6810f2a). These step
 
 ## 1. Calibrate each new motor once it's wired
 
-Hand, pivot and elbow run on placeholder values until measured: 2 V poses, 0.5 s long, 1 s max hold.
+Mouth, hand and pivot were calibrated on 2026-10-02. The elbow doesn't respond yet (to check inside the animatronic) and still runs on placeholder values: 2 V poses, 0.5 s long, 1 s max hold.
 
-For each motor:
+Once it moves:
 
 1. `sudo systemctl stop jack`
-2. `sudo -u jack /opt/jack-venv/bin/python /opt/jack/calibrate.py hand` (or `pivot`, or `elbow`)
+2. `sudo -u jack /opt/jack-venv/bin/python /opt/jack/calibrate.py elbow`
 3. Find:
-   - which sign moves it the right way (curl the hand, swing the pivot right, raise the elbow)
+   - which sign raises it
    - a working voltage
    - how long it can safely hold
 4. Put the values in `/etc/jack/poses.toml`. Use the same layout as the repo's `poses.toml`, and include only the keys you change.
 5. `sudo systemctl start jack`
 
-Once the values are right, copy them into the repo's `poses.toml` and set `calibrated = true` for that motor.
+Once the values are right, copy them into the repo's `poses.toml` and set `calibrated = true`.
 
 ## 2. Choose brake or coast at rest
 
-If a spring-return motor comes back to rest sluggishly, set `rest = "coast"` for it in `/etc/jack/poses.toml`. The default is `"brake"`. Coasting hasn't been tried on the hardware yet.
+The hand and pivot stay where they stop, so this applies only if the elbow turns out to spring back. If it comes back to rest sluggishly, set `rest = "coast"` for it in `/etc/jack/poses.toml`. The default is `"brake"`. Coasting hasn't been tried on the hardware yet.
 
 ## 3. Rerun the recovery checks with four motors
 

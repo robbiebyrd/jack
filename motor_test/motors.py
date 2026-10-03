@@ -12,13 +12,13 @@ class MotorSpec:
     name: str
     address: int
     channel: str
-    # True when commands run −1…1 (pivot: left…right) instead of 0…1.
+    # True when commands run −1…1 (pivot: left…right; hand: open…curled) instead of 0…1.
     two_sided: bool
 
 
 MOTORS: tuple[MotorSpec, ...] = (
     MotorSpec("mouth", HAT1_ADDRESS, "A", two_sided=False),
-    MotorSpec("hand", HAT1_ADDRESS, "B", two_sided=False),
+    MotorSpec("hand", HAT1_ADDRESS, "B", two_sided=True),
     MotorSpec("pivot", HAT2_ADDRESS, "A", two_sided=True),
     MotorSpec("elbow", HAT2_ADDRESS, "B", two_sided=False),
 )

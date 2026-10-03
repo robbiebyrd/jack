@@ -73,6 +73,11 @@ Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
 Holding a voltage keeps the motor running against resistance (stalled), so
 prefer the closed and relaxed-open poses and keep fully open short.
 
+Since the mouth moved to channel A (2026-10-02) its signs are reversed:
+positive opens and negative closes (see "Poses and per-motor settings").
+The retired demo's segments (`motor_test/mouth.py`, `motor_test/speech.py`)
+still use the old signs.
+
 1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
    its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
    terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
@@ -330,15 +335,17 @@ source of movement switches.
 | Name | Board | Channel | Rest | Continuous range |
 |---|---|---|---|---|
 | `mouth` | `0x40` | A | closed | 0.0 … 1.0 (open) |
-| `hand` | `0x40` | B | outstretched | 0.0 … 1.0 (curled inward) |
-| `pivot` | `0x41` | A | centred | −1.0 (left) … 0.0 … +1.0 (right) |
+| `hand` | `0x40` | B | stays where it stopped | −1.0 (open) … 0.0 … +1.0 (curled inward) |
+| `pivot` | `0x41` | A | stays where it stopped | −1.0 (left) … 0.0 … +1.0 (right) |
 | `elbow` | `0x41` | B | 90° down | 0.0 … 1.0 (up, towards 30°) |
 
 - `motor_test/motors.py` (pure) is the registry: name, board address,
-  channel, and whether the range is one-sided or two-sided (pivot).
+  channel, and whether the range is one-sided or two-sided (hand, pivot).
 - Boss wires the new motors to these channels. On the first HAT, Boss
-  confirmed (2026-10-02) the mouth is on channel A and the hand on B; hand,
-  pivot and elbow are uncalibrated.
+  confirmed (2026-10-02) the mouth is on channel A and the hand on B. The
+  hand and pivot don't spring back: driving moves them and they stay put, so
+  they are two-sided and rest is a brake in place. The elbow doesn't respond
+  yet and is uncalibrated.
 - Both boards are required: if either fails at startup the app exits with a
   clear message and systemd keeps retrying (no silent degraded mode).
 - Every motor is braked at startup, each HAT's motors as soon as that HAT
@@ -363,7 +370,7 @@ file and entry. Per motor:
 - `rest`: `"brake"` (short brake, the default and today's behaviour) or
   `"coast"` (leads open), in case braking slows a spring return; plus an
   optional rest pulse (`rest_pulse_v`, `rest_pulse_s`) played on the way to
-  rest (the mouth's close pulse +0.5 V, 0.08 s, since it holds its pose
+  rest (the mouth's close pulse −0.5 V, 0.08 s, since it holds its pose
   unpowered).
 - `poses`: named poses, each a signed voltage and a default duration.
   Poses have no ramp of their own: every move ramps at the motor's
@@ -374,12 +381,29 @@ file and entry. Per motor:
 The mouth's entry is the single source of its voltages for both lip sync
 and show mode (see the note under "Mouth control").
 
-Values: the mouth's come from its calibration and lip-sync tuning
-(open range 1–6 V, close pulse +0.5 V/0.08 s, slew 48 V/s, poses
-`close`, `relax`, `open`). Hand (`curl`), pivot (`left`, `right`) and elbow
-(`up`) start as **placeholders, marked uncalibrated in the file**: 2 V,
-0.5 s poses, 1 s max hold, 24 V/s slew, positive sign. Boss replaces them
-after measuring each motor with `calibrate.py`. Volts beyond the 12 V
+Values: Boss's calibration of 2026-10-02 with `calibrate.py` ("hold" is
+the safe total time driven at a voltage):
+
+| Motor | Direction | Moves at | Safe hold |
+|---|---|---|---|
+| mouth | + opens, − closes | open 2–6 V (1 V opens very slightly), close −0.25 to −5 V | 2 V 2 s, 6 V 0.5 s, −0.25 V 1 s, −5 V 0.25 s |
+| hand | + curls, − opens | curl 3–6 V, open −0.5 to −6 V | 6–5 V 2 s, 3 V 5 s, −5 V 0.5 s, −3 V 1 s, −1 V 4 s |
+| pivot | + right, − left | 6–7 V | 6–7 V 4 s |
+
+A full curl from open is +6 V for 1.5 s; a full open from curled is −5 V for
+0.75 s; 4 s at ±6 V swings the pivot fully across.
+
+In `poses.toml`: the mouth keeps its lip-sync range 1–6 V (1 V for
+fidelity), slew 48 V/s, close pulse −0.5 V/0.08 s, poses `close` −1 V,
+`relax` +2 V, `open` +6 V. The hand runs 3–6 V both ways (the lowest volts
+that move it both ways), poses `curl` +6 V and `open` −5 V. The pivot runs
+6–7 V, poses `left`/`right` ±6 V for 2 s (about centre to one side). The
+hand and pivot slew at 24 V/s (not measured). `max_hold_s` is one cutoff per
+motor, so it is the hold at the motor's hardest drive: mouth 0.5 s (was 1 s,
+so lip sync rests a mouth held open longer than that), hand 0.5 s (its curl
+and open poses are cut to 0.5 s, so a full move takes several), pivot 4 s.
+The elbow (`up`) stays a **placeholder, marked uncalibrated in the file**:
+2 V, 0.5 s pose, 1 s max hold, 24 V/s slew, positive sign. Volts beyond the 12 V
 supply are rejected.
 
 ### Command board (`motor_test/control_board.py`)
@@ -435,7 +459,7 @@ on the hardware).
 
 | Address | Arguments | Effect |
 |---|---|---|
-| `/jack/<motor>` | float | Continuous value (0…1; pivot −1…1) |
+| `/jack/<motor>` | float | Continuous value (0…1; hand and pivot −1…1) |
 | `/jack/<motor>/pose` | string, optional float | Named pose, optional duration (s) |
 | `/jack/<motor>/rest` | — | That motor to rest |
 | `/jack/rest` | — | All motors to rest |
@@ -554,7 +578,7 @@ at a known voltage while Boss reads MA1/MA2 and MB1/MB2 with a meter.
   localhost port; OSC end to end with real UDP packets on localhost; talk
   loop driving all four motors from the board, the mode switch, and all
   four braked on exit.
-- Pi: the board check; `calibrate.py` per new motor to replace the
+- Pi: the board check; `calibrate.py` for the elbow to replace its
   placeholders; OSC from Boss's show controller and the control page in a
   browser; the recovery checks again with four motors.
 
