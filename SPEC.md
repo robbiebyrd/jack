@@ -75,7 +75,7 @@ prefer the closed and relaxed-open poses and keep fully open short.
 
 Since the mouth moved to channel A (2026-10-02) its signs are reversed:
 positive opens and negative closes (see "Poses and per-motor settings").
-The retired demo's segments (`motor_test/mouth.py`, `motor_test/speech.py`)
+The retired demo's segments (`jack/show/motion/mouth.py`, `jack/show/motion/speech.py`)
 still use the old signs.
 
 1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
@@ -83,7 +83,7 @@ still use the old signs.
    terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
 2. **Motor A (the mouth)** imitates speaking until control inputs (audio,
    DMX, websockets) are wired in. Each cycle plays a fresh random phrase from
-   `motor_test/speech.py`, at most 4.5 s long:
+   `jack/show/motion/speech.py`, at most 4.5 s long:
    - 1–4 words of 1–3 syllables; 0.05–0.15 s between syllables, 0.1–0.3 s
      between words, and a 0.5–1.5 s pause after the phrase.
    - A syllable opens part way with −2 V for 0.15–0.4 s, then closes with
@@ -129,7 +129,7 @@ without a commit per try (see also "Calibration for every motor"):
   move the motor.
 - The motor brakes after every move and on every exit: `q`, end of input,
   Ctrl-C, and I2C errors.
-- Code: `motor_test/calibration.py` (`parse_command`, `run_calibration`,
+- Code: `jack/application/calibration.py` (`parse_command`, `run_calibration`,
   talking to motors only through `MotorOutput`) and `calibrate.py`
   (composition root reusing `main.py`'s hardware constants and
   `POSES_PATHS`).
@@ -344,7 +344,7 @@ source of movement switches.
 | `pivot` | `0x41` | A | stays where it stopped | −1.0 (left) … 0.0 … +1.0 (right) |
 | `elbow` | `0x41` | B | 90° down | 0.0 … 1.0 (up, towards 30°) |
 
-- `motor_test/motors.py` (pure) is the registry: name, board address,
+- `jack/show/motion/motors.py` (pure) is the registry: name, board address,
   channel, and whether the range is one-sided or two-sided (hand, pivot).
 - Boss wires the new motors to these channels. On the first HAT, Boss
   confirmed (2026-10-02) the mouth is on channel A and the hand on B. The
@@ -426,7 +426,7 @@ The elbow (`up`) stays a **placeholder, marked uncalibrated in the file**:
 2 V, 0.5 s pose, holds ±2 V 1 s, 24 V/s slew, positive sign. Volts beyond the 12 V
 supply are rejected.
 
-### Command board (`motor_test/control_board.py`)
+### Command board (`jack/show/control/control_board.py`)
 
 Thread-safe; the OSC and HTTP threads write, the talk loop reads once per
 20 ms tick. The clock is injected (tests need no sleeping). Per motor it
@@ -445,7 +445,7 @@ holds the latest command — a **value** (with arrival time) or a **pose**
   (after slew) uses `TICK_S / hold(volts)` of it; when the budget is spent
   the motor is forced to rest until a rest command arrives or commands
   stop. Any rest refills the budget at once. Rest-pulse ticks use none (the
-  pulse is checked against the holds at load). `motor_test/stall_budget.py`
+  pulse is checked against the holds at load). `jack/show/motion/stall_budget.py`
   holds the budget; lip sync spends the mouth's the same way (see "Mouth
   control"). So 0.25 s at 6 V and 1 s at
   2 V on the mouth (half of 0.5 s, half of 2 s) together spend it.
@@ -457,7 +457,7 @@ holds the latest command — a **value** (with arrival time) or a **pose**
 The network threads never touch a motor: the talk loop is the only owner of
 the hardware, so the existing watchdog and shutdown path cover everything.
 Per-motor tick logic (slew, max hold, rest pulse, brake/coast) lives in
-`motor_test/motor_driver.py` (pure). The loop writes a motor only when its
+`jack/show/motion/motor_driver.py` (pure). The loop writes a motor only when its
 drive changes, so a steady value or a resting motor costs no I2C traffic
 (a duty change is 4 single-byte I2C writes and a brake 12, so rewriting
 four motors every 20 ms tick would cost 16–48 writes per tick).
@@ -494,11 +494,11 @@ on the hardware).
 Out-of-range values are clamped (logged); unknown motors, poses or
 addresses, and mouth commands in `live` mode, are ignored and logged; all
 these log lines are rate-limited to one per kind per minute
-(`motor_test/rate_limited_log.py`). No
+(`jack/support/rate_limited_log.py`). No
 authentication: anyone on the LAN may send commands (Boss, 2026-10-02).
 Library: `python-osc` (pip, pinned in `requirements-pi.txt` and
 `requirements-dev.txt`; no dependencies of its own, Python ≥ 3.10; not
-packaged by Debian), imported only in `motor_test/osc_server.py`. Bundle
+packaged by Debian), imported only in `jack/adapters/network/osc_server.py`. Bundle
 timetags are ignored (`Dispatcher(strict_timing=False)`): every message
 acts on arrival, so a future timetag can't hold a thread asleep; request
 threads are daemon threads so they never keep the process from exiting.
@@ -526,8 +526,8 @@ Jack answers and reports state over OSC, as well as taking commands.
   - A subscriber that hasn't renewed within 60 s is dropped.
   - A send error to one subscriber is logged (rate-limited) and doesn't stop the others.
 - **Structure:**
-  - `motor_test/osc_feedback.py` (pure, injected clock) turns a ControlBoard status into state messages, detects changes per subscriber, and keeps the subscriber list (expiry, cap).
-  - A daemon "osc-feedback" thread in `motor_test/osc_server.py` reads the board every 20 ms and sends. The talk loop never does network I/O, so a slow network can't stall the motors.
+  - `jack/show/control/osc_feedback.py` (pure, injected clock) turns a ControlBoard status into state messages, detects changes per subscriber, and keeps the subscriber list (expiry, cap).
+  - A daemon "osc-feedback" thread in `jack/adapters/network/osc_server.py` reads the board every 20 ms and sends. The talk loop never does network I/O, so a slow network can't stall the motors.
   - The ping, status, subscribe and unsubscribe routes are parsed in `show_commands.py` like every other command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
 - **Not provided:** OSC over TCP, authentication, protection against a LAN host subscribing on another host's behalf or filling the 8 slots (follows from no authentication; bounded by the cap and the 60 s lease), and feedback over HTTP (HTTP has `/status`).
 
@@ -573,12 +573,12 @@ Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
   live/show switch and a status panel refreshed every second. A held
   slider resends its value about 20 times a second (dead-man); releasing
   it lets the motor rest. One self-contained HTML file
-  (`motor_test/control_page.html`), no external scripts.
+  (`jack/adapters/network/control_page.html`), no external scripts.
 - On macOS 15+, the browser may need Local Network permission to reach
   `http://10.10.0.54:8080`, as the Mumble client did.
 
 Both protocols go through one pure translation module,
-`motor_test/show_commands.py`, which turns an OSC address + arguments or an
+`jack/show/control/show_commands.py`, which turns an OSC address + arguments or an
 HTTP path + JSON body into board commands; all validation and clamping
 live there, so OSC and HTTP behave identically.
 
@@ -683,15 +683,15 @@ Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
 `control_page.html`) are described in "Show control". Two more modules
 support them:
 
-- `motor_test/motor_driver.py` (domain, pure): `MotorDriver`, one per
+- `jack/show/motion/motor_driver.py` (domain, pure): `MotorDriver`, one per
   motor, turns the commanded volts (or None for rest) into its drive each
   20 ms tick: slew limit on driving harder, max-hold trip, rest pulse, then
   `Rest("brake")` or `Rest("coast")`.
-- `motor_test/rate_limited_log.py`: `RateLimitedLog(print, interval_s,
+- `jack/support/rate_limited_log.py`: `RateLimitedLog(print, interval_s,
   clock)`, a callable that lets one line per key through per interval, so a
   flood of bad OSC messages stays one journal line per kind per minute.
 
-- `motor_test/ramp.py` (domain, pure): waveforms as signed 12-bit duty
+- `jack/show/motion/ramp.py` (domain, pure): waveforms as signed 12-bit duty
   counts (negative = backward). `ramp_profile(peak_volts, supply_volts,
   steps)` is one cycle of a 0 → peak → 0 triangle that starts at 0, peaks
   at `steps // 2`, and omits the closing 0 so cycles chain seamlessly.
@@ -704,19 +704,19 @@ support them:
   step. It rejects durations that are not a whole number of steps. All raise `ValueError` for a non-positive supply, a voltage outside the
   supply range, or an odd or too-small step count. Magnitudes cap at 4095
   (4096 would set the PCA9685 full-off bit).
-- `motor_test/mouth.py` (domain, pure): the calibrated mouth poses as
+- `jack/show/motion/mouth.py` (domain, pure): the calibrated mouth poses as
   `(start_volts, end_volts, seconds)` segments built with `hold()` and
   `ramp()`: `CLOSE`, `RELAX`, `open_fully(seconds)` (ramps over
   `OPEN_RAMP_S` = 0.25 s, then holds) and `rest(seconds)`, plus
   `describe()` for log lines.
-- `motor_test/ports.py`: the `MotorOutput` protocol, with
+- `jack/application/ports.py`: the `MotorOutput` protocol, with
   `drive(count)` (signed) and `stop()`.
-- `motor_test/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
+- `jack/adapters/hardware/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
   the PWM chip, created once per HAT (`0x40`, `0x41`) and shared by that HAT's two motors. Register logic
   follows Waveshare's `PCA9685.py`, writing 12-bit counts directly
   (Waveshare's `setDutycycle` scales by 40 and never reaches the full
   4096). `set_off_count(channel, count)` rejects counts outside 0..4095.
-- `motor_test/tb6612_motor.py` (adapter): `Tb6612Motor(chip, channels,
+- `jack/adapters/hardware/tb6612_motor.py` (adapter): `Tb6612Motor(chip, channels,
   reverse=False)`, a `MotorOutput` for one TB6612FNG channel.
   `MotorChannels(pwm, in1, in2)`, with `MOTOR_A = (0, 1, 2)` and
   `MOTOR_B = (5, 3, 4)`. `drive(count)` runs at duty `abs(count)`,
@@ -729,13 +729,13 @@ support them:
   https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT). That
   library drives TB6612 pins from Pi GPIO, which this HAT does not do, so
   only the ideas are borrowed.
-- `motor_test/attempt_all.py`: `attempt_all(actions)` runs every action
+- `jack/support/attempt_all.py`: `attempt_all(actions)` runs every action
   even if an earlier one raises, then re-raises the first failure. Used
   wherever braking must not be skipped.
-- `motor_test/speech.py` (domain): `random_phrase(rng)` builds one
+- `jack/show/motion/speech.py` (domain): `random_phrase(rng)` builds one
   talking phrase from the calibrated poses (see "Smoke test behavior");
   pass a seeded `random.Random` for repeatable output.
-- `motor_test/smoke_test.py` (application): `run_generated_loop(motors,
+- `jack/application/smoke_test.py` (application): `run_generated_loop(motors,
   next_cycle, step_s, sleep, on_cycle)` asks `next_cycle()` for one count
   list per motor each cycle and plays them in lockstep: step i drives
   every motor with its i-th count, then waits `step_s`. It repeats forever,
@@ -743,35 +743,35 @@ support them:
   motor when the loop exits (exception, unplayable cycle or SIGTERM), even
   if stopping one fails. `run_profiles_loop(profiles, ...)` is the
   fixed-profile form, checked before any motor is touched.
-- `motor_test/systemd_notify.py` (adapter): `notify(message)` sends one
+- `jack/adapters/system/systemd_notify.py` (adapter): `notify(message)` sends one
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
   supports abstract-namespace sockets (`@` prefix).
-- `motor_test/pcm.py` (domain, pure): the frame format (48 kHz mono
+- `jack/show/audio/pcm.py` (domain, pure): the frame format (48 kHz mono
   16-bit, 20 ms = 960 samples), `silence()` and `mix(frames)`.
-- `motor_test/envelope.py` (domain, pure): frame RMS in dBFS and the
+- `jack/show/audio/envelope.py` (domain, pure): frame RMS in dBFS and the
   attack/release smoother.
-- `motor_test/talk_settings.py` (domain, pure): `TalkSettings`, every
+- `jack/show/audio/talk_settings.py` (domain, pure): `TalkSettings`, every
   tunable in the table above with its starting value, validated.
-- `motor_test/lip_sync.py` (domain, pure): the mouth state machine; level
+- `jack/show/audio/lip_sync.py` (domain, pure): the mouth state machine; level
   in, signed volts out, one call per tick.
-- `motor_test/frame_queue.py` (domain): `FrameQueue`, a thread-safe,
+- `jack/show/audio/frame_queue.py` (domain): `FrameQueue`, a thread-safe,
   bounded queue that cuts arbitrary PCM chunks into frames and drops the
   oldest past its limit.
-- `motor_test/ports.py` gains `VoiceSource` (`take_frames()`: the next
+- `jack/application/ports.py` gains `VoiceSource` (`take_frames()`: the next
   frame from each voice currently sounding) and `AudioSink` (`write(frame)`,
   blocking; `close()`).
-- `motor_test/mumble_voice.py` (adapter): a `VoiceSource` with one
+- `jack/adapters/audio/mumble_voice.py` (adapter): a `VoiceSource` with one
   `FrameQueue` per Mumble talker, fed by pymumble's sound callback, plus
   `connect_mumble()`. The only module that imports pymumble.
-- `motor_test/wav_source.py` (adapter): a `VoiceSource` playing one WAV
+- `jack/adapters/audio/wav_source.py` (adapter): a `VoiceSource` playing one WAV
   file, a frame per tick.
-- `motor_test/alsa_sink.py` (adapter): an `AudioSink` on ALSA card 0 via
+- `jack/adapters/audio/alsa_sink.py` (adapter): an `AudioSink` on ALSA card 0 via
   `python3-alsaaudio`, riding through underruns. The only module that
   imports `alsaaudio`.
-- `motor_test/service_guard.py`: `app_is_running()`, shared by
+- `jack/adapters/system/service_guard.py`: `app_is_running()`, shared by
   `calibrate.py` and `lipsync_wav.py`.
-- `motor_test/talk_loop.py` (application): `run_talk_loop`, taking the
+- `jack/application/talk_loop.py` (application): `run_talk_loop`, taking the
   sources, an `AudioSink`, the motors by name, their profiles, the settings,
   the `ControlBoard`, the supply voltage, an `on_second` callback and an
   `until` check; always brakes every motor and closes the sink on exit.

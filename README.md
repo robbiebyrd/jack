@@ -71,7 +71,7 @@ Jack plays whatever is said in its Mumble server's root channel and moves the mo
 ### Tuning the lip sync
 
 Quickest: override any setting on the Pi. Add `JACK_<SETTING_NAME>` lines to `/etc/jack/jack.env`
-(names are the fields of `motor_test/talk_settings.py`, upper-case) and restart. The mouth's
+(names are the fields of `jack/show/audio/talk_settings.py`, upper-case) and restart. The mouth's
 volts are not among them: `min_v`, `max_v`, `slew_v_per_s`, `rest_pulse_v` and `rest_pulse_s` are
 tuned in `/etc/jack/poses.toml` under `[mouth]` (the app refuses to start if the old
 `JACK_OPEN_MIN_V`, `JACK_OPEN_MAX_V`, `JACK_OPEN_SLEW_V_PER_S`, `JACK_CLOSE_V` or `JACK_CLOSE_S` is
@@ -89,7 +89,7 @@ journalctl -u jack -n 20   # an invalid value stops the app with a one-line mess
 ```
 
 Or try a WAV offline. Record a WAV of speech, convert it to mono 16-bit 48 kHz on the Mac, copy it to the Pi and play it
-through the same loop, overriding any setting from `motor_test/talk_settings.py`:
+through the same loop, overriding any setting from `jack/show/audio/talk_settings.py`:
 
 ```bash
 afconvert -f WAVE -d LEI16@48000 -c 1 speech.m4a speech.wav
@@ -98,7 +98,7 @@ ssh -t 10.10.0.54 'sudo systemctl stop jack && sudo -u jack /opt/jack-venv/bin/p
 ```
 
 Run with `--help` for every setting. When you like a set of values, put them in `/etc/jack/jack.env` (or make them the defaults in
-`motor_test/talk_settings.py`), then `sudo systemctl start jack`. Mouth volts go in `/etc/jack/poses.toml` `[mouth]`.
+`jack/show/audio/talk_settings.py`), then `sudo systemctl start jack`. Mouth volts go in `/etc/jack/poses.toml` `[mouth]`.
 
 ## Show control
 
