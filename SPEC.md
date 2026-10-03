@@ -635,6 +635,44 @@ The app must come back on its own from any failure, without a human:
 
 ## Code structure (hexagonal)
 
+### Package layout (Boss, 2026-10-03)
+
+The code lives in one package, `jack/` (formerly `motor_test/`), grouped by
+hexagonal layer, then by function:
+
+```
+jack/
+  show/                 pure logic: no hardware, network, sound card or systemd
+    audio/      pcm, envelope, frame_queue, lip_sync
+    motion/     motors, poses, motor_driver, stall_budget, ramp, mouth, speech
+    control/    control_board, show_commands, osc_feedback
+  application/  ports, talk_loop, talk_settings, calibration, smoke_test
+  adapters/
+    hardware/   pca9685, tb6612_motor
+    audio/      alsa_sink, mumble_voice, wav_source
+    network/    osc_server, http_server, control_page.html
+    system/     systemd_notify, service_guard
+  support/      attempt_all, rate_limited_log
+```
+
+- `show/` is Jack's show itself: what the motors, voice and controls mean,
+  with no I/O. One exception: `show/motion/poses.py` reads its TOML files,
+  since loading and validating them is one job.
+- `application/` runs the show: the talk loop and the tools' logic,
+  talking to the outside only through the `Protocol`s in
+  `application/ports.py`.
+- `adapters/` are the only modules that touch hardware, the network, the
+  sound card or systemd.
+- `support/` holds small helpers any layer may use.
+- Every directory is a package (`__init__.py`, empty). Modules are imported
+  by full path, e.g. `from jack.show.motion.poses import load_profiles`.
+- The entry scripts stay at the repo root (`main.py`, `calibrate.py`,
+  `lipsync_wav.py`) with `poses.toml` and `tools/`, so `jack.service`
+  (`/opt/jack/main.py`) and the deploy are unchanged. Tests stay flat in
+  `tests/`.
+- Files move with `git mv` so their history follows. Plans under `docs/`
+  keep their `motor_test` paths as a record of what was built then.
+
 Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
 `control_board.py`, `show_commands.py`, `osc_server.py`, `http_server.py`,
 `control_page.html`) are described in "Show control". Two more modules
