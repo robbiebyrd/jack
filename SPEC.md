@@ -313,19 +313,68 @@ as `jack` (`sudo -u jack`) so it can read `/etc/jack/poses.toml`.
   public.
 - The bot joins the root channel as `Jack`. Boss connects the Mumble
   desktop client to `10.10.0.54:64738` and uses push-to-talk.
+- Mumble stays as a fallback to ROC (see "ROC voice"); both run at once.
+
+### ROC voice (designed with Boss, 2026-10-03)
+
+Boss replaces Mumble as the everyday way to talk through Jack, for less
+complexity and less delay: any Mac app's sound goes to a Roc Toolkit
+virtual output device (roc-vad) and streams over the LAN to the Pi. Mumble
+stays as a fallback; Jack listens to both and mixes them.
+
+Measured in a throwaway spike (2026-10-03): roc-vad 0.0.4 on Boss's Mac
+(macOS 27.2) streams to `roc-recv` 0.4.0 (Debian 13 package
+`roc-toolkit-tools`) on the Pi. The sender sends 44.1 kHz; `roc-recv`
+resamples. ROC's own end-to-end latency over the Wi-Fi LAN: target 200 ms
+(default) → ~190 ms, 120 ms → ~112 ms, 90 ms → ~80 ms, all one steady
+session; 60 ms broke up (16 session restarts in 30 s, ~2.6 s of gaps).
+`roc-recv -o file:- --output-format s16 --rate 48000` writes raw stereo
+signed 16-bit samples to stdout in real time, both channels identical, and
+silence while nobody sends.
+
+- **Adapter:** `jack/adapters/audio/roc_voice.py`, a `VoiceSource`. It
+  starts `roc-recv` as a child process:
+  `roc-recv -s rtp+rs8m://0.0.0.0:<source> -r rs8m://0.0.0.0:<repair>
+  -c rtcp://0.0.0.0:<control> -o file:- --output-format s16 --rate 48000
+  --target-latency=<ms>ms`. A reader thread reads its stdout, keeps the
+  left channel (mono, signed 16-bit, 48 kHz: the talk loop's format), and
+  puts it in a `FrameQueue` (`MAX_BACKLOG_MS`), which cuts 20 ms frames and
+  drops the oldest audio if Jack falls behind. `take_frames()` returns the
+  next frame, or none. The command to start is injected, so tests run a
+  fake `roc-recv`.
+- **Mixing:** the talk loop gets `[mumble_voice, roc_voice]` and mixes
+  whatever each has, as it already does for several Mumble talkers.
+- **Settings** (`/etc/jack/jack.env`, checked at startup; a bad value stops
+  the app with a one-line message naming it): `JACK_ROC_SOURCE_PORT`
+  (default 10001), `JACK_ROC_REPAIR_PORT` (10002), `JACK_ROC_CONTROL_PORT`
+  (10003), ports 1–65535; `JACK_ROC_TARGET_LATENCY_MS` (default 100, the
+  lowest steady spike value plus margin), a positive number. The right
+  latency depends on the network, so it is tuned on site.
+- **Install:** `deploy/install.sh` adds `roc-toolkit-tools` to its
+  `apt-get install` list.
+- **Mac side** (README "Talking over ROC"): install roc-vad, then
+  `roc-vad device add sender --name "Jack"` and
+  `roc-vad device connect <id> --source rtp+rs8m://10.10.0.54:10001
+  --repair rs8m://10.10.0.54:10002 --control rtcp://10.10.0.54:10003`, and
+  choose "Jack" as the sound output.
+- **Out of scope:** an OSC/HTTP "ROC receiving" indicator, choosing one
+  source over the other, and sending audio back to the Mac.
 
 ### Failure handling
 
 | Failure | Behavior |
 |---|---|
-| Mumble server down, or bot disconnected | Bot reconnects (pymumble's `reconnect=True`, every 10 s, if the spike proves it works); the loop keeps playing silence, mouth closed, watchdog pinged. One log line per disconnect and per reconnect. |
+| Mumble server down, or bot disconnected | Bot reconnects (pymumble's `reconnect=True`, every 10 s, if the spike proves it works); the loop keeps playing (ROC, or silence), watchdog pinged. One log line per disconnect and per reconnect. |
 | Gap in voice | Silence is played; the state machine closes the mouth. |
 | Backlog | Dropped per `MAX_BACKLOG_MS`, logged. |
 | ALSA underrun (xrun) | Recover the device, log, continue. |
 | Other ALSA error, or I2C `OSError` | Propagates: all four motors short-brake (`attempt_all`), the process exits, systemd restarts it (see Self-recovery). |
 | Loop hangs | Watchdog kills and restarts after 10 s; the motor holds its last duty until then (accepted, as today). |
 | SIGTERM | `SystemExit`: brake all four motors, close ALSA; the bot's daemon thread ends with the process, closing its connection. |
-| pymumble's thread dies (e.g. the server rejects the password) | The next once-a-second watchdog check sees it and exits; systemd restarts Jack after 5 s and it retries. |
+| pymumble's thread dies (e.g. the server rejects the password) | Logged once ("Mumble stopped; ROC still works"); Jack keeps running on ROC. `/jack/mumble` feedback and `/status` show Mumble disconnected; restarting Jack retries it. (Before ROC, this exited so systemd restarted Jack.) |
+| `roc-recv` missing at startup | Exits with "roc-recv not found: sudo apt install roc-toolkit-tools"; systemd keeps retrying. A broken install fails loudly, as a missing HAT does. |
+| `roc-recv` exits while running | Its reader sees end of output, logs "roc-recv exited (code N); restarting" (at most one line a minute), waits 2 s and starts it again. Motors, Mumble and the loop carry on. |
+| Shutdown (SIGTERM or any exit) | `roc-recv` is terminated (SIGTERM, then killed after 1 s); systemd's stop also ends anything left in the service's process group. |
 | `mumble-server` crashes | Its own unit restarts it; Jack sees a disconnect. |
 
 ## Show control
