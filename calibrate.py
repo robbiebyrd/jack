@@ -2,7 +2,8 @@
 
 Stop the app first so the two programs don't fight over the HATs:
     sudo systemctl stop jack
-    /opt/jack-venv/bin/python /opt/jack/calibrate.py elbow
+    sudo -u jack /opt/jack-venv/bin/python /opt/jack/calibrate.py elbow
+Run it as jack: only jack can read the overrides in /etc/jack.
 """
 
 import argparse
@@ -16,7 +17,7 @@ from motor_test.calibration import MAX_MOVE_S, USAGE, run_calibration
 from motor_test.motors import MOTOR_NAMES, motor_spec
 from motor_test.pca9685 import Pca9685
 from motor_test.poses import load_profiles
-from motor_test.service_guard import STOP_APP_FIRST, app_is_running
+from motor_test.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
 from motor_test.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
 
 
@@ -30,7 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         profile = load_profiles(POSES_PATHS, SUPPLY_VOLTS)[args.motor]
     except (ValueError, OSError) as error:
-        print(error, file=sys.stderr)
+        print(tool_error_message(error), file=sys.stderr)
         return 2
     spec = motor_spec(args.motor)
     note = "" if profile.calibrated else " — poses are UNCALIBRATED placeholders"

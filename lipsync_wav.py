@@ -2,9 +2,9 @@
 
 Stop the app first so the two programs don't fight over the HAT and the sound card:
     sudo systemctl stop jack
-    /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py voice.wav --gate-open-db -30 --release-s 0.1
+    sudo -u jack /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py voice.wav --gate-open-db -30 --release-s 0.1
 The WAV must be mono 16-bit 48 kHz. Settings are in motor_test/talk_settings.py;
-the mouth's voltages are in poses.toml.
+the mouth's voltages are in poses.toml. Run it as jack: only jack can read the overrides in /etc/jack.
 """
 
 import argparse
@@ -20,7 +20,7 @@ from motor_test.alsa_sink import open_alsa_sink
 from motor_test.control_board import ControlBoard
 from motor_test.pcm import TICKS_PER_SECOND
 from motor_test.poses import load_profiles
-from motor_test.service_guard import STOP_APP_FIRST, app_is_running
+from motor_test.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
 from motor_test.talk_loop import run_talk_loop
 from motor_test.talk_settings import TalkSettings
 from motor_test.wav_source import WavSource
@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         profiles = load_profiles(POSES_PATHS, SUPPLY_VOLTS)
         source = WavSource(args.wav)
     except (ValueError, OSError) as error:
-        print(error, file=sys.stderr)
+        print(tool_error_message(error), file=sys.stderr)
         return 2
     print(f"Playing {args.wav} on {ALSA_DEVICE} with {settings}")
     with SMBus(I2C_BUS) as bus:

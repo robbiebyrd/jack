@@ -105,8 +105,11 @@ without a commit per try (see also "Calibration for every motor"):
 
 - Stop the app first (`sudo systemctl stop jack`); the tool refuses to run
   while `jack.service` is active, since both would drive the same chips.
-- Run `/opt/jack-venv/bin/python /opt/jack/calibrate.py <motor>`
-  (`mouth`, `hand`, `pivot` or `elbow`) as a user in the `i2c` group. It
+- Run `sudo -u jack /opt/jack-venv/bin/python /opt/jack/calibrate.py <motor>`
+  (`mouth`, `hand`, `pivot` or `elbow`). It runs as `jack` because only
+  root and the `jack` group can read `/etc/jack` (it holds the Mumble
+  password), and `jack` is in the `i2c` group; if `/etc/jack` is
+  unreadable the tool says to run it as `jack`. It
   names the motor's HAT and channel, and warns if its poses are
   uncalibrated placeholders. Each line `<volts> <seconds>` drives that motor
   (negative = backward), then short-brakes. A pose name from `poses.toml`
@@ -288,7 +291,8 @@ Plays a WAV file through the same talk loop without Mumble, on the Pi, with
 a command-line override for every setting above, so Boss can tune by
 watching the mouth. It refuses to run while `jack.service` is active (both
 would drive the chip and the sound card), using the same check as
-`calibrate.py`, moved into one shared helper.
+`calibrate.py`, moved into one shared helper. Like `calibrate.py`, it runs
+as `jack` (`sudo -u jack`) so it can read `/etc/jack/poses.toml`.
 
 ### Mumble server and client
 

@@ -22,3 +22,10 @@ def test_invalid_poses_file_is_reported_before_touching_hardware(monkeypatch, ca
     monkeypatch.setattr(calibrate, "POSES_PATHS", (calibrate.POSES_PATHS[0], bad))
     assert calibrate.main(["elbow"]) == 2
     assert "99" in capsys.readouterr().err
+
+
+def test_unreadable_app_config_says_to_run_as_jack(monkeypatch, capsys, unreadable_app_config):
+    monkeypatch.setattr(calibrate, "app_is_running", lambda: False)
+    monkeypatch.setattr(calibrate, "POSES_PATHS", (calibrate.POSES_PATHS[0], unreadable_app_config))
+    assert calibrate.main(["elbow"]) == 2
+    assert "sudo -u jack" in capsys.readouterr().err

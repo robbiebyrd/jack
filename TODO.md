@@ -9,7 +9,7 @@ Hand, pivot and elbow run on placeholder values until measured: 2 V poses, 0.5 s
 For each motor:
 
 1. `sudo systemctl stop jack`
-2. `/opt/jack-venv/bin/python /opt/jack/calibrate.py hand` (or `pivot`, or `elbow`)
+2. `sudo -u jack /opt/jack-venv/bin/python /opt/jack/calibrate.py hand` (or `pivot`, or `elbow`)
 3. Find:
    - which sign moves it the right way (curl the hand, swing the pivot right, raise the elbow)
    - a working voltage

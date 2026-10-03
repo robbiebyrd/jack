@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from motor_test.service_guard import APP_SERVICE, STOP_APP_FIRST, app_is_running
+from motor_test.service_guard import APP_CONFIG_DIR, APP_SERVICE, STOP_APP_FIRST, app_is_running, tool_error_message
 
 
 @pytest.fixture
@@ -34,3 +34,19 @@ def test_stopped_app_is_detected(fake_systemctl):
 def test_message_says_how_to_stop_the_app():
     assert APP_SERVICE in STOP_APP_FIRST
     assert "sudo systemctl stop jack" in STOP_APP_FIRST
+
+
+def test_unreadable_app_config_says_to_run_the_tool_as_jack():
+    error = PermissionError(13, "Permission denied", str(APP_CONFIG_DIR / "poses.toml"))
+    message = tool_error_message(error)
+    assert message.startswith(str(error))
+    assert "sudo -u jack /opt/jack-venv/bin/python" in message
+
+
+def test_other_unreadable_files_get_no_hint():
+    error = PermissionError(13, "Permission denied", "/home/someone/voice.wav")
+    assert tool_error_message(error) == str(error)
+
+
+def test_other_errors_are_reported_as_they_are():
+    assert tool_error_message(ValueError("max_v = 99 is too high")) == "max_v = 99 is too high"

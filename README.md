@@ -35,7 +35,7 @@ for 10 s, systemd kills and restarts it.
 
 ```bash
 ssh -t 10.10.0.54 sudo systemctl stop jack   # free the HATs (brakes all four motors)
-ssh -t 10.10.0.54 /opt/jack-venv/bin/python /opt/jack/calibrate.py mouth   # or hand, pivot, elbow
+ssh -t 10.10.0.54 sudo -u jack /opt/jack-venv/bin/python /opt/jack/calibrate.py mouth   # or hand, pivot, elbow
 mouth> -4.5 0.8                              # at -4.5 V for 0.8 s, then brake
 mouth> close                                 # a pose from poses.toml; also: relax, open 0.5
 mouth> q
@@ -45,6 +45,7 @@ ssh -t 10.10.0.54 sudo systemctl start jack  # resume
 Negative volts open the mouth (0 V closed, about −6 V open). Poses ramp up from 0 V at the
 motor's `slew_v_per_s`, then hold. Moves run in 50 ms steps (durations must be whole steps),
 are capped at 3 s, and always end braked. The tool lists the motor's poses when it starts.
+Run it as the `jack` user: only `jack` can read `/etc/jack`, where the motor overrides live.
 
 To measure a new motor (hand, pivot or elbow, whose entries in `poses.toml` are uncalibrated
 placeholders), stop the app and run `calibrate.py` with its name, then put the volts you find in
@@ -52,7 +53,7 @@ placeholders), stop the app and run `calibrate.py` with its name, then put the v
 
 ```bash
 sudo systemctl stop jack
-/opt/jack-venv/bin/python /opt/jack/calibrate.py elbow
+sudo -u jack /opt/jack-venv/bin/python /opt/jack/calibrate.py elbow
 ```
 
 After each deploy, the Pi's green and red onboard LEDs blink for 10 s.
@@ -93,7 +94,7 @@ through the same loop, overriding any setting from `motor_test/talk_settings.py`
 ```bash
 afconvert -f WAVE -d LEI16@48000 -c 1 speech.m4a speech.wav
 scp speech.wav 10.10.0.54:/tmp/
-ssh -t 10.10.0.54 'sudo systemctl stop jack && /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py /tmp/speech.wav --release-s 0.1'
+ssh -t 10.10.0.54 'sudo systemctl stop jack && sudo -u jack /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py /tmp/speech.wav --release-s 0.1'
 ```
 
 Run with `--help` for every setting. When you like a set of values, put them in `/etc/jack/jack.env` (or make them the defaults in

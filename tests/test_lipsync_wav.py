@@ -60,3 +60,10 @@ def test_runs_on_for_the_tail_after_the_wav_ends():
     assert not until()
     source.finished = True
     assert [until(), until(), until()] == [False, False, True]
+
+
+def test_unreadable_app_config_says_to_run_as_jack(monkeypatch, capsys, unreadable_app_config):
+    monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
+    monkeypatch.setattr(lipsync_wav, "POSES_PATHS", (lipsync_wav.POSES_PATHS[0], unreadable_app_config))
+    assert lipsync_wav.main(["voice.wav"]) == 2
+    assert "sudo -u jack" in capsys.readouterr().err

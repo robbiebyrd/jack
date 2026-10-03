@@ -5,6 +5,8 @@ import tempfile
 
 import pytest
 
+from motor_test import service_guard
+
 
 @pytest.fixture
 def notify_socket(monkeypatch):
@@ -19,3 +21,17 @@ def notify_socket(monkeypatch):
     yield server
     server.close()
     shutil.rmtree(directory)
+
+
+@pytest.fixture
+def unreadable_app_config(tmp_path, monkeypatch):
+    """An app config directory this user can't enter, like /etc/jack to anyone outside the jack group."""
+    config_dir = tmp_path / "etc-jack"
+    config_dir.mkdir()
+    monkeypatch.setattr(service_guard, "APP_CONFIG_DIR", config_dir)
+    config_dir.chmod(0)
+    try:
+        yield config_dir / "poses.toml"
+    finally:
+        # Lets pytest delete tmp_path later.
+        config_dir.chmod(0o755)
