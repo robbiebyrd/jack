@@ -11,7 +11,10 @@ def test_install_script_parses():
 
 def test_install_script_sets_up_talking():
     script = INSTALL.read_text()
-    for package in ("mumble-server", "python3-alsaaudio", "python3-opuslib", "python3-protobuf", "python3-venv"):
+    packages = (
+        "mumble-server", "python3-alsaaudio", "python3-opuslib", "python3-protobuf", "python3-venv", "roc-toolkit-tools",
+    )
+    for package in packages:
         assert package in script
     assert "--system-site-packages" in script
     assert "--no-deps -r" in script

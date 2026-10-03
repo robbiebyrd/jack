@@ -1,6 +1,5 @@
 import random
 import signal
-import socket
 
 import pytest
 
@@ -31,17 +30,20 @@ class StandInClient:
         return self._alive
 
 
-def test_watchdog_while_connected_pings_while_the_mumble_client_lives(notify_socket):
-    main.watchdog_while_connected(StandInClient(alive=True))()
+def test_the_watchdog_pings_while_the_mumble_client_lives(notify_socket):
+    log = []
+    main.watchdog_noting_mumble(StandInClient(alive=True), log.append)()
     assert notify_socket.recv(64) == b"WATCHDOG=1"
+    assert log == []
 
 
-def test_watchdog_while_connected_exits_without_pinging_once_the_mumble_client_died(notify_socket):
-    with pytest.raises(SystemExit) as exit_info:
-        main.watchdog_while_connected(StandInClient(alive=False))()
-    assert "Mumble" in str(exit_info.value.code)
-    with pytest.raises(socket.timeout):
-        notify_socket.recv(64)
+def test_a_dead_mumble_client_is_logged_once_and_the_watchdog_keeps_pinging(notify_socket):
+    log = []
+    check = main.watchdog_noting_mumble(StandInClient(alive=False), log.append)
+    check()
+    check()
+    assert [notify_socket.recv(64), notify_socket.recv(64)] == [b"WATCHDOG=1", b"WATCHDOG=1"]
+    assert log == ["Mumble stopped; ROC still works"]
 
 
 WATCHDOG_S = 10  # WatchdogSec in deploy/jack.service
@@ -244,3 +246,35 @@ def test_a_non_ascii_digit_port_exits_naming_the_variable():
     with pytest.raises(SystemExit) as exit_info:
         main.show_control_config({"JACK_OSC_PORT": "²"})
     assert "JACK_OSC_PORT" in str(exit_info.value.code)
+
+
+def test_roc_settings_default_to_the_spec_values():
+    assert main.roc_config({}) == main.RocConfig(
+        source_port=10001, repair_port=10002, control_port=10003, target_latency_ms=100.0
+    )
+
+
+def test_roc_settings_come_from_the_environment():
+    environ = {
+        "JACK_ROC_SOURCE_PORT": "11001", "JACK_ROC_REPAIR_PORT": "11002",
+        "JACK_ROC_CONTROL_PORT": "11003", "JACK_ROC_TARGET_LATENCY_MS": "120",
+    }
+    assert main.roc_config(environ) == main.RocConfig(11001, 11002, 11003, 120.0)
+
+
+@pytest.mark.parametrize(
+    "var, value",
+    [("JACK_ROC_SOURCE_PORT", "0"), ("JACK_ROC_REPAIR_PORT", "70000"), ("JACK_ROC_CONTROL_PORT", "x"),
+     ("JACK_ROC_TARGET_LATENCY_MS", "0"), ("JACK_ROC_TARGET_LATENCY_MS", "-5"), ("JACK_ROC_TARGET_LATENCY_MS", "nan")],
+)
+def test_bad_roc_settings_exit_naming_the_variable(var, value):
+    with pytest.raises(SystemExit) as exit_info:
+        main.roc_config({var: value})
+    assert var in str(exit_info.value.code)
+
+
+def test_a_missing_roc_recv_exits_saying_what_to_install(monkeypatch, tmp_path):
+    monkeypatch.setenv("PATH", str(tmp_path))  # an empty directory: no roc-recv to find
+    with pytest.raises(SystemExit) as exit_info:
+        main.start_roc_voice(main.roc_config({}), 10)
+    assert exit_info.value.code == "roc-recv not found: sudo apt install roc-toolkit-tools"

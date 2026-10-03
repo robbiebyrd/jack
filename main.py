@@ -1,4 +1,4 @@
-"""Jack talks and takes show control: Boss's voice from Mumble plays on the 3.5 mm jack; the mouth follows it (live) or show commands (show); hand, pivot and elbow follow OSC/HTTP show commands."""
+"""Jack talks and takes show control: Boss's voice from ROC or Mumble plays on the 3.5 mm jack; the mouth follows it (live) or show commands (show); hand, pivot and elbow follow OSC/HTTP show commands."""
 
 import dataclasses
 import math
@@ -21,6 +21,7 @@ from jack.adapters.network.http_server import start_http_server
 from jack.show.motion.motors import MOTORS
 from jack.show.motion.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
 from jack.adapters.audio.mumble_voice import MumbleVoice, connect_mumble
+from jack.adapters.audio.roc_voice import RocVoice, roc_recv_command
 from jack.show.control.osc_feedback import Subscribers
 from jack.adapters.network.osc_server import OscEndpoint, start_feedback
 from jack.adapters.hardware.pca9685 import Pca9685
@@ -62,6 +63,12 @@ MOVED_TO_POSES = {
 DEFAULT_OSC_PORT = 9000
 DEFAULT_HTTP_PORT = 8080
 DEFAULT_CONTROL_TIMEOUT_S = 0.5
+# Roc Toolkit voice (SPEC.md "ROC voice"); every value can be set in /etc/jack/jack.env.
+DEFAULT_ROC_SOURCE_PORT = 10001
+DEFAULT_ROC_REPAIR_PORT = 10002
+DEFAULT_ROC_CONTROL_PORT = 10003
+# The spike's lowest steady target over the Wi-Fi LAN was 90 ms; 100 ms leaves a margin.
+DEFAULT_ROC_TARGET_LATENCY_MS = 100.0
 # One log line per kind of bad OSC message per minute.
 OSC_LOG_INTERVAL_S = 60.0
 # Fixed pose tour: an alternative to speaking, e.g. for checking the mechanism.
@@ -78,17 +85,19 @@ def ping_watchdog() -> None:
     notify("WATCHDOG=1")
 
 
-def watchdog_while_connected(mumble_client) -> Callable[[], None]:
-    """The talk loop's once-a-second callback: ping the watchdog only while the Mumble client thread lives.
+def watchdog_noting_mumble(mumble_client, log: Callable[[str], None]) -> Callable[[], None]:
+    """The talk loop's once-a-second callback: ping the watchdog, and log once if Mumble's client thread died.
 
-    pymumble's thread ends for good when the server rejects the login, so a dead one must restart the app.
+    pymumble's thread ends for good when the server rejects the login. Jack keeps running on ROC; a
+    restart retries Mumble.
     """
+    noted = False
 
     def check() -> None:
-        if not mumble_client.is_alive():
-            raise SystemExit(
-                "Mumble client stopped (e.g. the server rejected the password); exiting so systemd restarts Jack"
-            )
+        nonlocal noted
+        if not noted and not mumble_client.is_alive():
+            noted = True
+            log("Mumble stopped; ROC still works")
         ping_watchdog()
 
     return check
@@ -187,6 +196,38 @@ def show_control_config(environ: Mapping[str, str] = os.environ) -> ShowControlC
     )
 
 
+@dataclass(frozen=True)
+class RocConfig:
+    source_port: int
+    repair_port: int
+    control_port: int
+    target_latency_ms: float
+
+
+def roc_config(environ: Mapping[str, str] = os.environ) -> RocConfig:
+    """roc-recv's ports and latency target, from jack.env or their defaults."""
+    latency = _env_number(environ, "JACK_ROC_TARGET_LATENCY_MS", DEFAULT_ROC_TARGET_LATENCY_MS)
+    if latency <= 0:
+        raise SystemExit(f"JACK_ROC_TARGET_LATENCY_MS={latency!r} in /etc/jack/jack.env must be positive")
+    return RocConfig(
+        source_port=_env_port(environ, "JACK_ROC_SOURCE_PORT", DEFAULT_ROC_SOURCE_PORT),
+        repair_port=_env_port(environ, "JACK_ROC_REPAIR_PORT", DEFAULT_ROC_REPAIR_PORT),
+        control_port=_env_port(environ, "JACK_ROC_CONTROL_PORT", DEFAULT_ROC_CONTROL_PORT),
+        target_latency_ms=latency,
+    )
+
+
+def start_roc_voice(config: RocConfig, max_backlog_frames: int) -> RocVoice:
+    """roc-recv running and feeding a RocVoice, or a one-line exit saying what to install."""
+    command = roc_recv_command(config.source_port, config.repair_port, config.control_port, config.target_latency_ms)
+    voice = RocVoice(command, max_backlog_frames, print)
+    try:
+        voice.start()
+    except FileNotFoundError as error:
+        raise SystemExit("roc-recv not found: sudo apt install roc-toolkit-tools") from error
+    return voice
+
+
 def _env_number(environ: Mapping[str, str], var: str, default: float | None) -> float | None:
     value = environ.get(var, "")
     if not value:
@@ -236,36 +277,44 @@ def main() -> None:
     settings = talk_settings()
     profiles = motor_profiles()
     config = show_control_config()
+    roc = roc_config()
     if overrides := describe_overrides(settings):
         print(f"Mouth setting overrides: {overrides}")
     board = ControlBoard(profiles, config.timeout_s, config.mouth_mode, time.monotonic)
     voice = MumbleVoice(settings.max_backlog_frames, print)
     mumble_client = connect_mumble(voice, MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, mumble_password())
-    with SMBus(I2C_BUS) as bus:
-        motors = build_motors(bus)
-        sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
-        endpoint = OscEndpoint("0.0.0.0", config.osc_port)
-        subscribers = Subscribers(time.monotonic)
-        osc_log = RateLimitedLog(print, OSC_LOG_INTERVAL_S, time.monotonic)
-        context = OscContext(
-            profiles=profiles, board=board, subscribers=subscribers, send=endpoint.send,
-            mumble_connected=lambda: voice.connected, reply_port=config.reply_port, log=osc_log,
-        )
-        endpoint.serve(lambda address, args, sender: handle_osc(address, args, sender, context))
-        start_feedback(endpoint, subscribers, lambda: board.status(voice.connected), osc_log)
-        start_http_server("0.0.0.0", config.http_port, board, profiles, lambda: voice.connected)
-        reply_target = config.reply_port or "sender's port"
-        uncalibrated = [name for name, profile in profiles.items() if not profile.calibrated]
-        print(
-            f"Talking: Mumble voice on {ALSA_DEVICE}; motors {', '.join(motors)} on {SUPPLY_VOLTS} V; "
-            f"mouth {config.mouth_mode}; OSC UDP {config.osc_port}, HTTP {config.http_port}; "
-            f"OSC replies to {reply_target}"
-            + (f"; uncalibrated: {', '.join(uncalibrated)}" if uncalibrated else "")
-        )
-        notify("READY=1")
-        run_talk_loop(
-            [voice], sink, motors, profiles, settings, board, SUPPLY_VOLTS, watchdog_while_connected(mumble_client)
-        )
+    roc_voice = start_roc_voice(roc, settings.max_backlog_frames)
+    try:
+        with SMBus(I2C_BUS) as bus:
+            motors = build_motors(bus)
+            sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
+            endpoint = OscEndpoint("0.0.0.0", config.osc_port)
+            subscribers = Subscribers(time.monotonic)
+            osc_log = RateLimitedLog(print, OSC_LOG_INTERVAL_S, time.monotonic)
+            context = OscContext(
+                profiles=profiles, board=board, subscribers=subscribers, send=endpoint.send,
+                mumble_connected=lambda: voice.connected, reply_port=config.reply_port, log=osc_log,
+            )
+            endpoint.serve(lambda address, args, sender: handle_osc(address, args, sender, context))
+            start_feedback(endpoint, subscribers, lambda: board.status(voice.connected), osc_log)
+            start_http_server("0.0.0.0", config.http_port, board, profiles, lambda: voice.connected)
+            reply_target = config.reply_port or "sender's port"
+            uncalibrated = [name for name, profile in profiles.items() if not profile.calibrated]
+            print(
+                f"Talking: ROC (UDP {roc.source_port}/{roc.repair_port}/{roc.control_port}, "
+                f"{roc.target_latency_ms:g} ms) and Mumble voice on {ALSA_DEVICE}; "
+                f"motors {', '.join(motors)} on {SUPPLY_VOLTS} V; "
+                f"mouth {config.mouth_mode}; OSC UDP {config.osc_port}, HTTP {config.http_port}; "
+                f"OSC replies to {reply_target}"
+                + (f"; uncalibrated: {', '.join(uncalibrated)}" if uncalibrated else "")
+            )
+            notify("READY=1")
+            run_talk_loop(
+                [voice, roc_voice], sink, motors, profiles, settings, board, SUPPLY_VOLTS,
+                watchdog_noting_mumble(mumble_client, print),
+            )
+    finally:
+        roc_voice.close()
 
 
 if __name__ == "__main__":
