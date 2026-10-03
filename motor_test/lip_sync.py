@@ -1,13 +1,15 @@
 """Turns smoothed loudness into mouth voltage, one 20 ms tick at a time.
 
 Closed until the level reaches the open gate; open in proportion to loudness while it
-stays above the (lower) close gate; then a short closing pulse. See "Mouth control" in SPEC.md.
+stays above the (lower) close gate; then a short closing pulse. An opening that spends the mouth's
+stall budget (its measured holds) closes and stays closed until a pause. See "Mouth control" in SPEC.md.
 """
 
 from enum import Enum
 
 from motor_test.pcm import TICK_S
 from motor_test.poses import MotorProfile
+from motor_test.stall_budget import StallBudget
 from motor_test.talk_settings import TalkSettings
 
 
@@ -28,18 +30,26 @@ class MouthController:
         self._state = _State.CLOSED
         self._magnitude = 0.0
         self._close_ticks_left = 0
-        self._stall_ticks = 0
-        self._stall_capped = False
+        self._budget = StallBudget(mouth)
+        # Set when an opening spent the budget; the mouth stays closed until the level drops below the close gate.
+        self._waiting_for_pause = False
 
     def update(self, level_db: float) -> float:
         """Advance one tick with the current smoothed level and return the mouth voltage."""
-        if level_db >= self._settings.gate_open_db:
+        if level_db < self._settings.gate_close_db:
+            self._waiting_for_pause = False
+        if level_db >= self._settings.gate_open_db and not self._waiting_for_pause:
             self._state = _State.OPEN
         elif self._state is _State.OPEN and level_db < self._settings.gate_close_db:
             self._start_closing()
 
         if self._state is _State.OPEN:
-            return self._mouth.sign * self._open_magnitude(level_db)
+            volts = self._mouth.sign * self._open_magnitude(level_db)
+            self._budget.spend(volts)
+            if not self._budget.exhausted:
+                return volts
+            self._waiting_for_pause = True
+            self._start_closing()
         if self._state is _State.CLOSING:
             return self._closing_volts()
         return 0.0
@@ -50,30 +60,15 @@ class MouthController:
         # The curve keeps medium syllables near relaxed open so only loud peaks open wide.
         loudness = loudness**s.open_curve
         target = self._mouth.min_v + (self._mouth.max_v - self._mouth.min_v) * loudness
-        if self._stall_capped:
-            target = min(target, self._mouth.min_v)
         # Opening wider is slew-limited because stepping straight to fully open strains the motor.
         self._magnitude = min(target, self._magnitude + self._slew_per_tick)
-        self._guard_stall()
         return self._magnitude
-
-    def _guard_stall(self) -> None:
-        """Cap the opening at relaxed open once it has pushed past stall_v for too long without a break."""
-        s = self._settings
-        if self._magnitude <= s.stall_v:
-            self._stall_ticks = 0
-            return
-        self._stall_ticks += 1
-        if self._stall_ticks > s.max_stall_ticks:
-            self._stall_capped = True
-            self._magnitude = min(self._magnitude, self._mouth.min_v)
 
     def _start_closing(self) -> None:
         self._state = _State.CLOSING if self._close_ticks else _State.CLOSED
         self._close_ticks_left = self._close_ticks
         self._magnitude = 0.0
-        self._stall_ticks = 0
-        self._stall_capped = False
+        self._budget.refill()
 
     def _closing_volts(self) -> float:
         self._close_ticks_left -= 1

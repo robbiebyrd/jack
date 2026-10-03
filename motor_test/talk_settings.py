@@ -15,8 +15,6 @@ from motor_test.ramp import whole_steps
 @dataclass(frozen=True)
 class TalkSettings:
     open_curve: float = 2.0
-    stall_v: float = 5.0
-    max_stall_s: float = 0.5
     attack_s: float = 0.01
     release_s: float = 0.04
     gate_open_db: float = -22.0
@@ -26,7 +24,7 @@ class TalkSettings:
     max_backlog_ms: float = 200.0
 
     def __post_init__(self) -> None:
-        for name in ("stall_v", "attack_s", "release_s"):
+        for name in ("attack_s", "release_s"):
             if getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
         if not self.gate_close_db < self.gate_open_db < self.full_db:
@@ -39,13 +37,8 @@ class TalkSettings:
         if self.mouth_lead_ms < 0:
             raise ValueError(f"mouth_lead_ms must not be negative, got {self.mouth_lead_ms}")
         # Each property below raises ValueError for a duration that isn't whole ticks.
-        self.max_stall_ticks
         self.mouth_lead_ticks
         self.max_backlog_frames
-
-    @property
-    def max_stall_ticks(self) -> int:
-        return whole_steps(self.max_stall_s, TICK_S)
 
     @property
     def mouth_lead_ticks(self) -> int:

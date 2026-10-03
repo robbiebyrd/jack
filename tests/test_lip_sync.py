@@ -2,6 +2,7 @@ import pytest
 
 from motor_test.lip_sync import MouthController
 from motor_test.pcm import TICK_S
+from motor_test.poses import Hold
 from motor_test.talk_settings import TalkSettings
 from tests.profiles import MOUTH, profile
 
@@ -76,23 +77,34 @@ def test_closing_down_to_a_smaller_opening_is_not_slew_limited():
     assert controller.update(GATE) == -1.0
 
 
-def test_stall_guard_caps_a_long_full_open_at_relaxed_open():
-    stall_ticks = TalkSettings().max_stall_ticks
-    volts = run(unslewed(), [FULL] * (stall_ticks + 2))
-    assert volts == [-6.0] * stall_ticks + [-1.0, -1.0]
+def budgeted():
+    """An unslewed controller whose mouth holds fully open (-6 V) for 0.4 s (20 ticks) and relaxed open (-1 V) for 2 s."""
+    holds = (Hold(-6.0, 0.4), Hold(-1.0, 2.0), Hold(1.0, 1.0))
+    return MouthController(TalkSettings(), profile("mouth", slew_v_per_s=1000.0, holds=holds))
 
 
-def test_stall_guard_resets_after_the_mouth_closes():
-    controller = unslewed()
-    run(controller, [FULL] * (TalkSettings().max_stall_ticks + 1))
+def test_a_long_full_open_closes_when_its_hold_is_spent():
+    volts = run(budgeted(), [FULL] * (20 + CLOSE_TICKS + 1))
+    assert volts == [-6.0] * 20 + [0.5] * CLOSE_TICKS + [0.0]
+
+
+def test_a_smaller_opening_runs_for_its_longer_hold():
+    volts = run(budgeted(), [GATE] * 101)
+    assert volts == [-1.0] * 100 + [0.5]
+
+
+def test_a_spent_mouth_stays_closed_through_loud_speech_until_a_pause():
+    controller = budgeted()
+    run(controller, [FULL] * (20 + CLOSE_TICKS))
+    assert run(controller, [FULL, BETWEEN_GATES, FULL]) == [0.0, 0.0, 0.0]
+    assert controller.update(BELOW_CLOSE) == 0.0
+    assert run(controller, [FULL] * 20) == [-6.0] * 20
+
+
+def test_closing_between_syllables_refills_the_budget():
+    controller = budgeted()
+    run(controller, [FULL] * 19)
     run(controller, [BELOW_CLOSE] * (CLOSE_TICKS + 1))
-    assert controller.update(FULL) == -6.0
-
-
-def test_a_break_below_the_stall_voltage_restarts_the_stall_timer():
-    controller = unslewed()
-    run(controller, [FULL] * 20)
-    controller.update(GATE)
     assert run(controller, [FULL] * 20) == [-6.0] * 20
 
 

@@ -249,9 +249,15 @@ motor A out.
   the motor (Boss, 2026-09-28; see `OPEN_RAMP_S`). Falling magnitude and
   the close pulse are not limited; `Tb6612Motor` already zeroes the duty
   before a direction flip.
-- **Stall guard:** if the open drive stays beyond `STALL_V` for more than
-  `MAX_STALL_S` without a break, the open voltage is capped at
-  `OPEN_MIN_V` until the level drops below `GATE_CLOSE_DB`.
+- **Stall budget:** each open tick spends the mouth's stall budget, the
+  same one show control uses (see "Command board"): `TICK_S / hold(volts)`
+  from the mouth's `holds` in `poses.toml`. When an opening spends it, the
+  mouth plays its close pulse and stays closed, even through loud speech,
+  until the level drops below `GATE_CLOSE_DB` (a pause). Every close
+  refills it, so normal speech with gaps never reaches it; a long loud
+  phrase does (about 0.5 s fully open, 1–2 s part open). It replaced a
+  stall guard (cap at relaxed open after 0.5 s beyond 5 V) that allowed
+  unlimited drive at or below 5 V (Boss, 2026-10-03).
 
 Starting values. **These are guesses to tune by eye**, except where the
 basis says calibration. The rows marked "now poses.toml" no longer live in
@@ -263,7 +269,6 @@ basis says calibration. The rows marked "now poses.toml" no longer live in
 | `OPEN_SLEW_V_PER_S` (now poses.toml `[mouth]` `slew_v_per_s`) | 48 V/s | Boss: respond twice as fast (2026-09-28). Risk: the calibrated ramp was 24 V/s (6 V over `OPEN_RAMP_S` = 0.25 s) because stepping to -6 V strained the motor; 48 V/s trades some of that margin for speed |
 | `OPEN_CURVE` | 2.0 | Boss: too sensitive, wanted a curve (2026-09-28); medium syllables open ~a quarter |
 | `CLOSE_V` / `CLOSE_S` (now poses.toml `[mouth]` `rest_pulse_v` / `rest_pulse_s`) | 0.5 V / 0.08 s | Boss: respond twice as fast (2026-09-28) (whole 20 ms ticks); the random-speech demo Boss saw as lifelike used 0.5 V for 0.15 s |
-| `STALL_V` / `MAX_STALL_S` | 5 V / 0.5 s | The mouth demo held −6 V for 0.5 s |
 | `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.04 s | `ATTACK_S` guess; `RELEASE_S`: Boss: respond twice as fast (2026-09-28) |
 | `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −22 / −27 / −14 dBFS | Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little. Measured from Boss's voice via Mumble on the Pi (per 20 ms frame: p75 −24, p90 −15.7, p95 −13.1, p99 −9.6 dBFS; above −25 dBFS 27% of frames, above −20 18%): the open gate at −22 opens the mouth on ~22% of frames, and `FULL_DB` −14 lets hard syllables (p90 to p95) reach fully open |
 | `MOUTH_LEAD_MS` | 0 ms | Tune by eye |
@@ -278,7 +283,7 @@ mouth's physical facts — `OPEN_MIN_V`, `OPEN_MAX_V`, `OPEN_SLEW_V_PER_S`,
 `poses.toml` (its range, slew and rest pulse; values unchanged). Lip sync
 reads them from there, exactly as show mode does, so one retune covers both
 modes. `TalkSettings` keeps only lip-sync behaviour (gates, `FULL_DB`,
-`OPEN_CURVE`, attack/release, stall guard, mouth lead, backlog). Their
+`OPEN_CURVE`, attack/release, mouth lead, backlog). Their
 `jack.env` overrides go away; if any of `JACK_OPEN_MIN_V`,
 `JACK_OPEN_MAX_V`, `JACK_OPEN_SLEW_V_PER_S`, `JACK_CLOSE_V` or
 `JACK_CLOSE_S` is still set, the app refuses to start with a one-line
@@ -416,9 +421,7 @@ points above (hand: +6 V and +5 V 2 s, +3 V 5 s, −1 V 4 s, −3 V 1 s, −5 V
 opening holds were measured only to −5 V; its `curl` pose is the full
 +6 V for 1.5 s (within the 2 s hold) and `open` is −5 V for 0.5 s (a full
 open, 0.75 s, is over the −5 V hold, so it takes two). The holds govern
-show control and poses; lip sync (live mode) still has only its own stall
-guard (`stall_v` 5 V for `max_stall_s` 0.5 s), so it does not yet respect
-the mouth's holds below 5 V.
+show control, poses and lip sync alike.
 The elbow (`up`) stays a **placeholder, marked uncalibrated in the file**:
 2 V, 0.5 s pose, holds ±2 V 1 s, 24 V/s slew, positive sign. Volts beyond the 12 V
 supply are rejected.
@@ -442,7 +445,9 @@ holds the latest command — a **value** (with arrival time) or a **pose**
   (after slew) uses `TICK_S / hold(volts)` of it; when the budget is spent
   the motor is forced to rest until a rest command arrives or commands
   stop. Any rest refills the budget at once. Rest-pulse ticks use none (the
-  pulse is checked against the holds at load). So 0.25 s at 6 V and 1 s at
+  pulse is checked against the holds at load). `motor_test/stall_budget.py`
+  holds the budget; lip sync spends the mouth's the same way (see "Mouth
+  control"). So 0.25 s at 6 V and 1 s at
   2 V on the mouth (half of 0.5 s, half of 2 s) together spend it.
 - The slew limit applies only to driving harder (a growing magnitude, or a
   reversal of direction). Easing off is immediate, and so are going to rest
@@ -800,7 +805,8 @@ support them:
     with `RELEASE_S`.
   - Lip sync: gate and hysteresis, both ends of the proportional range,
     the opening slew limit, close pulse length, a syllable interrupting a
-    close, and the stall guard engaging and releasing.
+    close, and the stall budget closing a long opening, holding it closed
+    until a pause, and refilling at every close.
   - `FrameQueue` cuts chunks of any length into whole frames, keeps a
     partial frame for the next chunk, drops the oldest frames past its
     limit and reports how many, and stays consistent under concurrent puts.
