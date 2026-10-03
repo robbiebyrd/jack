@@ -18,7 +18,7 @@ from motor_test.pcm import TICK_S
 from motor_test.ramp import whole_steps
 
 REST_MODES = ("brake", "coast")
-_REQUIRED = ("calibrated", "min_v", "max_v", "sign", "slew_v_per_s", "max_hold_s", "holds", "rest")
+_REQUIRED = ("calibrated", "min_v", "max_v", "sign", "slew_v_per_s", "holds", "rest")
 _OPTIONAL = ("rest_pulse_v", "rest_pulse_s", "poses")
 
 
@@ -43,7 +43,6 @@ class MotorProfile:
     max_v: float
     sign: int
     slew_v_per_s: float
-    max_hold_s: float
     holds: tuple[Hold, ...]
     rest: str
     rest_pulse_v: float
@@ -142,10 +141,16 @@ def _in_file(origins: dict, key: object) -> AbstractContextManager[None]:
 
 def _profile(name: str, table: dict, origins: dict, files: list[Path], supply_volts: float) -> MotorProfile:
     where = f"[{name}]"
+
     def all_files() -> AbstractContextManager[None]:
         """Blames every file that set this motor; a fresh one per use, since each can be entered only once."""
         return _blamed_on(", ".join(str(path) for path in files))
 
+    if "max_hold_s" in table:
+        with _in_file(origins, "max_hold_s"):
+            raise ValueError(
+                f"{where}: max_hold_s is replaced by holds = [{{ volts = <V>, seconds = <s> }}, ...] (SPEC.md)"
+            )
     unknown = sorted(set(table) - set(_REQUIRED) - set(_OPTIONAL))
     if unknown:
         with _in_file(origins, unknown[0]):
@@ -172,8 +177,6 @@ def _profile(name: str, table: dict, origins: dict, files: list[Path], supply_vo
         slew = _number(where, table, "slew_v_per_s")
         if slew <= 0:
             raise ValueError(f"{where}: slew_v_per_s must be positive, got {slew}")
-    with _in_file(origins, "max_hold_s"):
-        max_hold_s = _ticks(where, "max_hold_s", _number(where, table, "max_hold_s"))
     with _in_file(origins, "holds"):
         holds = _holds(where, table["holds"], supply_volts)
     with _in_file(origins, "rest"):
@@ -197,7 +200,7 @@ def _profile(name: str, table: dict, origins: dict, files: list[Path], supply_vo
             poses[pose] = _pose(f"{where} pose {pose}", spec, supply_volts)
     profile = MotorProfile(
         calibrated=table["calibrated"], min_v=min_v, max_v=max_v, sign=int(table["sign"]), slew_v_per_s=slew,
-        max_hold_s=max_hold_s, holds=holds, rest=table["rest"], rest_pulse_v=rest_pulse_v,
+        holds=holds, rest=table["rest"], rest_pulse_v=rest_pulse_v,
         rest_pulse_s=rest_pulse_s, poses=poses,
     )
     with all_files():

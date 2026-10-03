@@ -15,7 +15,6 @@ min_v = 1.0
 max_v = 2.0
 sign = 1
 slew_v_per_s = 24.0
-max_hold_s = 1.0
 holds = [{{ volts = 3.0, seconds = 1.0 }}, {{ volts = -3.0, seconds = 1.0 }}]
 rest = "brake"
 [{name}.poses]
@@ -40,26 +39,26 @@ def all_motors(**extra_by_motor):
 def test_repo_poses_file_matches_the_spec():
     profiles = load_profiles([REPO_POSES], SUPPLY)
     mouth = profiles["mouth"]
-    assert (mouth.calibrated, mouth.min_v, mouth.max_v, mouth.sign, mouth.max_hold_s) == (True, 1.0, 6.0, 1, 0.5)
+    assert (mouth.calibrated, mouth.min_v, mouth.max_v, mouth.sign) == (True, 1.0, 6.0, 1)
     assert mouth.holds == (Hold(-5.0, 0.25), Hold(-0.25, 1.0), Hold(2.0, 2.0), Hold(6.0, 0.5))
     assert (mouth.slew_v_per_s, mouth.rest, mouth.rest_pulse_v, mouth.rest_pulse_s) == (48.0, "brake", -0.5, 0.08)
     assert mouth.poses == {"close": Pose(-1.0, 0.25), "relax": Pose(2.0, 0.5), "open": Pose(6.0, 0.5)}
     hand = profiles["hand"]
-    assert (hand.calibrated, hand.min_v, hand.max_v, hand.sign, hand.max_hold_s) == (True, 3.0, 5.0, 1, 0.5)
+    assert (hand.calibrated, hand.min_v, hand.max_v, hand.sign) == (True, 3.0, 5.0, 1)
     assert hand.holds == (
         Hold(-5.0, 0.5), Hold(-3.0, 1.0), Hold(-1.0, 4.0), Hold(3.0, 5.0), Hold(5.0, 2.0), Hold(6.0, 2.0)
     )
     assert (hand.slew_v_per_s, hand.rest, hand.rest_pulse_s) == (24.0, "brake", 0.0)
-    assert hand.poses == {"curl": Pose(6.0, 0.5), "open": Pose(-5.0, 0.5)}
+    assert hand.poses == {"curl": Pose(6.0, 1.5), "open": Pose(-5.0, 0.5)}
     pivot = profiles["pivot"]
-    assert (pivot.calibrated, pivot.min_v, pivot.max_v, pivot.sign, pivot.max_hold_s) == (True, 6.0, 7.0, 1, 4.0)
+    assert (pivot.calibrated, pivot.min_v, pivot.max_v, pivot.sign) == (True, 6.0, 7.0, 1)
     assert pivot.holds == (Hold(-7.0, 4.0), Hold(-6.0, 4.0), Hold(6.0, 4.0), Hold(7.0, 4.0))
     assert (pivot.slew_v_per_s, pivot.rest, pivot.rest_pulse_s) == (24.0, "brake", 0.0)
     assert pivot.poses == {"left": Pose(-6.0, 2.0), "right": Pose(6.0, 2.0)}
     elbow = profiles["elbow"]
     assert elbow.calibrated is False
     assert elbow.holds == (Hold(-2.0, 1.0), Hold(2.0, 1.0))
-    assert (elbow.max_v, elbow.max_hold_s, elbow.slew_v_per_s, elbow.sign) == (2.0, 1.0, 24.0, 1)
+    assert (elbow.max_v, elbow.slew_v_per_s, elbow.sign) == (2.0, 24.0, 1)
     assert elbow.poses == {"up": Pose(2.0, 0.5)}
 
 
@@ -114,7 +113,7 @@ def test_missing_first_file_is_an_error(tmp_path):
         ("[hand]\nmin_v = 3.0\n", "min_v"),
         ("[hand]\nsign = 2\n", "sign"),
         ("[hand]\nrest = \"float\"\n", "rest"),
-        ("[hand]\nmax_hold_s = 0.33\n", "max_hold_s"),
+        ("[hand]\nmax_hold_s = 1.0\n", "holds"),
         ("[hand]\nholds = 3\n", "holds"),
         ("[hand]\nholds = []\n", "holds"),
         ("[hand]\nholds = [{ volts = 2.0 }]\n", "holds"),
@@ -206,6 +205,14 @@ def test_float_sign_is_stored_as_an_int(tmp_path):
     sign = load_profiles([base, override], SUPPLY)["hand"].sign
     assert sign == -1
     assert isinstance(sign, int)
+
+
+def test_a_leftover_max_hold_s_says_to_write_holds(tmp_path):
+    base = write(tmp_path, all_motors())
+    override = write(tmp_path, "[hand]\nmax_hold_s = 1.0\n", "pi.toml")
+    with pytest.raises(ValueError, match="max_hold_s.*holds") as error:
+        load_profiles([base, override], SUPPLY)
+    assert str(override) in str(error.value)
 
 
 def test_holds_load_as_points(tmp_path):

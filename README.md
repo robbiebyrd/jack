@@ -215,7 +215,7 @@ version, so check it against your layout.
   `/jack/pivot` (left … right) use -1 to 1, so set those faders' range to -1...1. Whether a held fader keeps resending while
   still is unverified. If it doesn't, a fader held still longer than the 0.5 s dead-man rests the
   motor and its feedback drops to 0; raise `JACK_CONTROL_TIMEOUT_S` if that bites (each motor's
-  max hold still caps any hold). Whether TouchOSC re-sends values it receives is also unverified.
+  holds still cap any hold). Whether TouchOSC re-sends values it receives is also unverified.
   Releasing a fader lets the motor rest after 0.5 s. `/jack/mouth` only works in `show` mode.
 - **Buttons:** `/jack/rest`, `/jack/<motor>/rest` and `/jack/<motor>/pose/<name>` (for example
   `/jack/elbow/pose/up`) act on press (a non-zero number) and ignore release (0). The pose plays
@@ -275,8 +275,9 @@ any mouth command is dropped.
 
 ### Motor settings: `poses.toml`
 
-`poses.toml` in the repo holds each motor's volts, slew, max hold, rest behaviour and named
-poses. The elbow is marked an uncalibrated placeholder until you measure it. To
+`poses.toml` in the repo holds each motor's volts, slew, measured holds (safe drive time per
+voltage), rest behaviour and named poses. The elbow is marked an uncalibrated placeholder until
+you measure it. To
 override on the Pi, create `/etc/jack/poses.toml` with only the keys you change, then
 `sudo systemctl restart jack`:
 
