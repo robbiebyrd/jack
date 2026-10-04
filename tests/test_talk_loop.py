@@ -12,7 +12,7 @@ from tests.fakes import FakeClock, MotorThatFailsToStop, RecordingMotor, Recordi
 from tests.profiles import PROFILES, profile
 
 SUPPLY_VOLTS = 12.0
-LOUD = constant_frame(20000)  # about -4.3 dBFS: above full_db once the envelope has risen
+LOUD = constant_frame(20000)  # about -4.3 dBFS: opens the mouth fully at the default gain once the envelope has risen
 FAST = {**PROFILES, "mouth": profile("mouth", slew_v_per_s=1000.0), "hand": profile("hand", slew_v_per_s=1000.0),
         "elbow": profile("elbow", slew_v_per_s=1000.0)}
 

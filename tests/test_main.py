@@ -101,8 +101,8 @@ def test_no_overrides_gives_the_default_settings():
 
 
 def test_env_overrides_set_only_the_named_fields():
-    settings = main.talk_settings({"JACK_GATE_OPEN_DB": "-20", "JACK_OPEN_CURVE": "1.5"})
-    assert settings == TalkSettings(gate_open_db=-20.0, open_curve=1.5)
+    settings = main.talk_settings({"JACK_MOUTH_GAIN_DB": "20", "JACK_ATTACK_S": "0.02"})
+    assert settings == TalkSettings(mouth_gain_db=20.0, attack_s=0.02)
 
 
 def test_env_variables_that_are_not_settings_are_ignored():
@@ -110,24 +110,24 @@ def test_env_variables_that_are_not_settings_are_ignored():
 
 
 def test_empty_override_keeps_the_default():
-    assert main.talk_settings({"JACK_GATE_OPEN_DB": ""}) == TalkSettings()
+    assert main.talk_settings({"JACK_ATTACK_S": ""}) == TalkSettings()
 
 
 def test_override_that_is_not_a_number_exits_naming_the_variable():
     with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({"JACK_GATE_OPEN_DB": "abc"})
-    assert exit_info.value.code == "JACK_GATE_OPEN_DB='abc' in /etc/jack/jack.env is not a number"
+        main.talk_settings({"JACK_ATTACK_S": "abc"})
+    assert exit_info.value.code == "JACK_ATTACK_S='abc' in /etc/jack/jack.env is not a number"
 
 
 def test_impossible_override_exits_saying_the_settings_are_invalid():
     with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({"JACK_GATE_OPEN_DB": "-40"})
+        main.talk_settings({"JACK_ATTACK_S": "0"})
     assert "Mouth settings from /etc/jack/jack.env are invalid" in exit_info.value.code
 
 
 def test_applied_overrides_are_listed_for_the_log():
-    assert main.describe_overrides(TalkSettings(gate_open_db=-20.0, open_curve=1.5)) == (
-        "open_curve=1.5, gate_open_db=-20.0"
+    assert main.describe_overrides(TalkSettings(mouth_gain_db=20.0, attack_s=0.02)) == (
+        "mouth_gain_db=20.0, attack_s=0.02"
     )
     assert main.describe_overrides(TalkSettings()) == ""
 

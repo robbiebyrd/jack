@@ -7,10 +7,10 @@ from jack.show.audio.talk_settings import TalkSettings
 
 def test_starting_values_match_the_spec():
     settings = TalkSettings()
-    assert settings.open_curve == 2.0
-    assert settings.mouth_gain_db == 0.0
+    assert settings.mouth_gain_db == 14.0
     assert (settings.attack_s, settings.release_s) == (0.01, 0.04)
-    assert (settings.gate_open_db, settings.gate_close_db, settings.full_db) == (-22.0, -27.0, -14.0)
+    # Lip sync follows the audio's amplitude: the gates and curve are gone.
+    assert not any(hasattr(settings, name) for name in ("gate_open_db", "gate_close_db", "full_db", "open_curve"))
     assert (settings.mouth_lead_ms, settings.max_backlog_ms) == (0.0, 200.0)
     assert not hasattr(settings, "open_min_v")
     # The mouth's stall protection is its holds in poses.toml.
@@ -29,28 +29,20 @@ def test_no_mouth_lead_is_zero_ticks():
 
 def test_settings_are_immutable():
     with pytest.raises(dataclasses.FrozenInstanceError):
-        TalkSettings().open_curve = 3.0
+        TalkSettings().attack_s = 0.5
 
 
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"open_curve": 0.5},
         {"attack_s": 0.0},
         {"release_s": -0.08},
-        {"gate_close_db": -20.0},
-        {"full_db": -40.0},
         {"mouth_lead_ms": 30.0},
         {"mouth_lead_ms": -20.0},
         {"max_backlog_ms": 0.0},
-        # Silence (the -90 dB floor) plus the gain would reach the close gate and hold the mouth open.
-        {"mouth_gain_db": 63.0},
     ],
 )
 def test_impossible_settings_are_rejected(overrides):
     with pytest.raises(ValueError):
         TalkSettings(**overrides)
 
-
-def test_a_large_but_safe_mouth_gain_is_accepted():
-    assert TalkSettings(mouth_gain_db=62.0).mouth_gain_db == 62.0

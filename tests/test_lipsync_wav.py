@@ -13,11 +13,10 @@ def test_defaults_are_the_starting_settings():
 
 def test_every_setting_can_be_overridden_from_the_command_line():
     args = lipsync_wav.build_parser().parse_args(
-        ["voice.wav", "--gate-open-db", "-20", "--release-s", "0.1", "--mouth-lead-ms", "40", "--open-curve", "3"]
+        ["voice.wav", "--mouth-gain-db", "20", "--release-s", "0.1", "--mouth-lead-ms", "40"]
     )
     settings = lipsync_wav.settings_from_args(args)
-    assert (settings.gate_open_db, settings.release_s, settings.mouth_lead_ms) == (-20.0, 0.1, 40.0)
-    assert settings.open_curve == 3.0
+    assert (settings.mouth_gain_db, settings.release_s, settings.mouth_lead_ms) == (20.0, 0.1, 40.0)
 
 
 def test_refuses_while_the_app_is_running(monkeypatch, capsys):
@@ -28,8 +27,8 @@ def test_refuses_while_the_app_is_running(monkeypatch, capsys):
 
 def test_impossible_override_is_rejected_before_touching_hardware(monkeypatch, capsys):
     monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
-    assert lipsync_wav.main(["voice.wav", "--gate-close-db", "-20"]) == 2
-    assert "gate_close_db" in capsys.readouterr().err
+    assert lipsync_wav.main(["voice.wav", "--attack-s", "0"]) == 2
+    assert "attack_s" in capsys.readouterr().err
 
 
 def test_invalid_poses_file_is_rejected_before_touching_hardware(monkeypatch, capsys, tmp_path):
