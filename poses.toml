@@ -55,8 +55,8 @@ holds = [            # calibration 2026-10-02
 rest = "brake"
 
 [pivot.poses]
-left = { volts = -6.0, seconds = 3.0 }   # centre to fully left, plus a second (Boss, 2026-10-04)
-right = { volts = 6.0, seconds = 3.0 }   # centre to fully right, plus a second (Boss, 2026-10-04)
+left = { volts = -6.0, seconds = 4.0 }   # fully left; 4 s is the pivot's whole hold (Boss, 2026-10-04)
+right = { volts = 6.0, seconds = 4.0 }   # fully right; 4 s is the pivot's whole hold (Boss, 2026-10-04)
 
 # UNCALIBRATED placeholders until measured with: calibrate.py elbow
 [elbow]

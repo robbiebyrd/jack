@@ -54,7 +54,7 @@ def test_repo_poses_file_matches_the_spec():
     assert (pivot.calibrated, pivot.min_v, pivot.max_v, pivot.sign) == (True, 6.0, 7.0, 1)
     assert pivot.holds == (Hold(-7.0, 4.0), Hold(-6.0, 4.0), Hold(6.0, 4.0), Hold(7.0, 4.0))
     assert (pivot.slew_v_per_s, pivot.rest, pivot.rest_pulse_s) == (24.0, "brake", 0.0)
-    assert pivot.poses == {"left": Pose(-6.0, 3.0), "right": Pose(6.0, 3.0)}
+    assert pivot.poses == {"left": Pose(-6.0, 4.0), "right": Pose(6.0, 4.0)}
     elbow = profiles["elbow"]
     assert elbow.calibrated is False
     assert elbow.holds == (Hold(-2.0, 1.0), Hold(2.0, 1.0))
