@@ -298,5 +298,8 @@ def test_a_replaced_lip_sync_setting_stops_the_app_saying_what_replaced_it(var):
 def test_a_mouth_gain_that_would_open_the_mouth_on_silence_stops_the_app():
     with pytest.raises(SystemExit) as exit_info:
         main.check_mouth_settings(TalkSettings(mouth_gain_db=80.0), {"mouth": MOUTH})
-    assert "mouth_gain_db" in str(exit_info.value.code)
+    message = str(exit_info.value.code)
+    # Either file can cause it: the gain in jack.env, or the mouth's min_v/max_v in an override poses.toml.
+    assert "mouth_gain_db" in message
+    assert "/etc/jack/jack.env" in message and "poses.toml" in message
     main.check_mouth_settings(TalkSettings(), {"mouth": MOUTH})

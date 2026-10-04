@@ -177,7 +177,10 @@ def check_mouth_settings(settings: TalkSettings, profiles: Mapping[str, MotorPro
     try:
         check_mouth_gain(settings, profiles["mouth"])
     except ValueError as error:
-        raise SystemExit(f"Mouth settings from /etc/jack/jack.env are invalid: {error}") from error
+        raise SystemExit(
+            "Mouth settings are invalid (JACK_MOUTH_GAIN_DB in /etc/jack/jack.env, or the [mouth] min_v/max_v "
+            f"in /etc/jack/poses.toml): {error}"
+        ) from error
 
 
 def describe_overrides(settings: TalkSettings) -> str:
