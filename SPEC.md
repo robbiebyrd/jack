@@ -240,31 +240,43 @@ while falling (coefficient e^(−tick/τ)).
 
 ### Mouth control (`lip_sync.py`)
 
-A pure, tick-based state machine: smoothed level in, signed volts for
-motor A out.
+Redesigned with Boss, 2026-10-04: in live mode the audio's amplitude sets
+the mouth's voltage directly, as on the Talking Skull board, instead of a
+gate-and-curve state machine (which, with the stall budget and a large
+gain, left the mouth moving only sporadically). A pure, tick-based
+controller: smoothed level in, signed volts for motor A out.
 
-| State | Motor A | Next |
-|---|---|---|
-| Closed | 0 V (short brake; the mouth holds closed unpowered) | level ≥ `GATE_OPEN_DB` → Open |
-| Open | −(`OPEN_MIN_V` + (`OPEN_MAX_V` − `OPEN_MIN_V`) × loudness), loudness = (level scaled 0..1 between `GATE_OPEN_DB` and `FULL_DB`, clamped) ^ `OPEN_CURVE` | level < `GATE_CLOSE_DB` → Closing |
-| Closing | +`CLOSE_V` for `CLOSE_S`, then → Closed | level ≥ `GATE_OPEN_DB` → Open at once (the next syllable interrupts the close) |
-
-- **Hysteresis:** `GATE_CLOSE_DB` is below `GATE_OPEN_DB` so the mouth
-  doesn't flutter at the threshold.
-- **Opening slew limit:** the open voltage's magnitude may grow by at most
-  `OPEN_SLEW_V_PER_S` per second, since stepping straight to −6 V strained
-  the motor (Boss, 2026-09-28; see `OPEN_RAMP_S`). Falling magnitude and
-  the close pulse are not limited; `Tb6612Motor` already zeroes the duty
-  before a direction flip.
+- **Amplitude:** the smoothed level (RMS dBFS through the attack/release
+  envelope) as a fraction of full scale: `a = 10 ^ (level_db / 20)`.
+- **Target:** `max_v × a × 10 ^ (MOUTH_GAIN_DB / 20)`, capped at `max_v`
+  (the mouth's `[mouth]` values in `poses.toml`). Twice the amplitude gives
+  twice the volts; at the default gain (+14 dB) a −14 dBFS slice opens the
+  mouth fully, the full-open point measured from Boss's voice.
+- **Open:** a target at or above `min_v` drives the mouth at
+  `sign × target`. Growing magnitude is slew-limited
+  (`slew_v_per_s`, since stepping straight to full open strained the
+  motor); falling magnitude is immediate.
+- **No positive voltage:** a target below `min_v` (at the default gain,
+  quieter than about −30 dBFS) after the mouth was open plays the closing
+  pull, the mouth's rest pulse (`rest_pulse_v` for `rest_pulse_s` in
+  `poses.toml`), then brakes at 0 V; the mouth holds closed unpowered. A
+  target back at or above `min_v` interrupts the pull and opens at once.
+  The pull is short and within the mouth's measured close holds, rather
+  than a constant negative bias, which would stall the mouth shut for as
+  long as nothing is said (Boss, 2026-10-04).
 - **Stall budget:** each open tick spends the mouth's stall budget, the
   same one show control uses (see "Command board"): `TICK_S / hold(volts)`
   from the mouth's `holds` in `poses.toml`. When an opening spends it, the
-  mouth plays its close pulse and stays closed, even through loud speech,
-  until the level drops below `GATE_CLOSE_DB` (a pause). Every close
-  refills it, so normal speech with gaps never reaches it; a long loud
-  phrase does (about 0.5 s fully open, 1–2 s part open). It replaced a
-  stall guard (cap at relaxed open after 0.5 s beyond 5 V) that allowed
-  unlimited drive at or below 5 V (Boss, 2026-10-03).
+  mouth plays the closing pull and stays closed until the target drops
+  below `min_v` (a quiet moment). Every close refills it.
+- **Gain check:** a gain at which silence (−90 dBFS) would reach `min_v`
+  stops the app at startup with a one-line message, since silence would
+  then hold the mouth open.
+- **Replaced:** the open and close gates with their hysteresis, `FULL_DB`
+  and `OPEN_CURVE`. If `JACK_GATE_OPEN_DB`, `JACK_GATE_CLOSE_DB`,
+  `JACK_FULL_DB` or `JACK_OPEN_CURVE` is still set in `jack.env`, the app
+  refuses to start with a one-line message saying lip sync now follows the
+  audio's amplitude and to tune `JACK_MOUTH_GAIN_DB` instead.
 
 Starting values. **These are guesses to tune by eye**, except where the
 basis says calibration. The rows marked "now poses.toml" no longer live in
@@ -274,11 +286,10 @@ basis says calibration. The rows marked "now poses.toml" no longer live in
 |---|---|---|
 | `OPEN_MIN_V` / `OPEN_MAX_V` (now poses.toml `[mouth]` `min_v` / `max_v`) | 1 V / 6 V | `OPEN_MAX_V`: calibration, fully open. `OPEN_MIN_V`: Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little (was 2 V, the calibrated relaxed open). Risk: the calibration never tested below 2 V; it is unknown that 1 V moves the mouth |
 | `OPEN_SLEW_V_PER_S` (now poses.toml `[mouth]` `slew_v_per_s`) | 48 V/s | Boss: respond twice as fast (2026-09-28). Risk: the calibrated ramp was 24 V/s (6 V over `OPEN_RAMP_S` = 0.25 s) because stepping to -6 V strained the motor; 48 V/s trades some of that margin for speed |
-| `MOUTH_GAIN_DB` | 0 dB | Boss, 2026-10-03: the mouth barely moved with ROC audio. Added to the smoothed level before the gates, so only the mouth reacts more; the sound is unchanged. Applies to every source (the level is measured after mixing). Refused if it would lift silence (−90 dB) to the close gate |
-| `OPEN_CURVE` | 2.0 | Boss: too sensitive, wanted a curve (2026-09-28); medium syllables open ~a quarter |
+| `MOUTH_GAIN_DB` | +14 dB | Boss, 2026-10-03: the mouth barely moved with ROC audio; 2026-10-04 it became the amplitude multiplier. +14 dB fully opens the mouth at −14 dBFS, the full-open point measured from Boss's voice (see the gates' row history below). Changes only the mouth; the sound is unchanged. Applies to every source (the level is measured after mixing) |
 | `CLOSE_V` / `CLOSE_S` (now poses.toml `[mouth]` `rest_pulse_v` / `rest_pulse_s`) | 0.5 V / 0.08 s | Boss: respond twice as fast (2026-09-28) (whole 20 ms ticks); the random-speech demo Boss saw as lifelike used 0.5 V for 0.15 s |
 | `ATTACK_S` / `RELEASE_S` | 0.01 s / 0.04 s | `ATTACK_S` guess; `RELEASE_S`: Boss: respond twice as fast (2026-09-28) |
-| `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB` | −22 / −27 / −14 dBFS | Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little. Measured from Boss's voice via Mumble on the Pi (per 20 ms frame: p75 −24, p90 −15.7, p95 −13.1, p99 −9.6 dBFS; above −25 dBFS 27% of frames, above −20 18%): the open gate at −22 opens the mouth on ~22% of frames, and `FULL_DB` −14 lets hard syllables (p90 to p95) reach fully open |
+| (replaced 2026-10-04) `GATE_OPEN_DB` / `GATE_CLOSE_DB` / `FULL_DB`, `OPEN_CURVE` 2.0 | −22 / −27 / −14 dBFS | History; the `FULL_DB` measurement sets `MOUTH_GAIN_DB`'s default. Boss, live tuning 2026-09-28: soft sounds too broad, hard sounds too little. Measured from Boss's voice via Mumble on the Pi (per 20 ms frame: p75 −24, p90 −15.7, p95 −13.1, p99 −9.6 dBFS; above −25 dBFS 27% of frames, above −20 18%): the open gate at −22 opens the mouth on ~22% of frames, and `FULL_DB` −14 lets hard syllables (p90 to p95) reach fully open |
 | `MOUTH_LEAD_MS` | 0 ms | Tune by eye |
 | `MAX_BACKLOG_MS` | 200 ms | Guess |
 
@@ -290,15 +301,15 @@ mouth's physical facts — `OPEN_MIN_V`, `OPEN_MAX_V`, `OPEN_SLEW_V_PER_S`,
 `CLOSE_V`, `CLOSE_S` — move out of `TalkSettings` into the mouth's entry in
 `poses.toml` (its range, slew and rest pulse; values unchanged). Lip sync
 reads them from there, exactly as show mode does, so one retune covers both
-modes. `TalkSettings` keeps only lip-sync behaviour (gates, `FULL_DB`,
-`OPEN_CURVE`, attack/release, mouth lead, backlog). Their
+modes. `TalkSettings` keeps only lip-sync behaviour (mouth gain,
+attack/release, mouth lead, backlog). Their
 `jack.env` overrides go away; if any of `JACK_OPEN_MIN_V`,
 `JACK_OPEN_MAX_V`, `JACK_OPEN_SLEW_V_PER_S`, `JACK_CLOSE_V` or
 `JACK_CLOSE_S` is still set, the app refuses to start with a one-line
 message saying to move it to `/etc/jack/poses.toml`.
 
 Every setting can be overridden on the Pi in `/etc/jack/jack.env` as
-`JACK_<SETTING_NAME>` (e.g. `JACK_GATE_OPEN_DB=-20`), then
+`JACK_<SETTING_NAME>` (e.g. `JACK_MOUTH_GAIN_DB=20`), then
 `sudo systemctl restart jack`. An invalid value (not a number, an impossible
 combination, or more volts than the supply) stops the app with a one-line
 message in `journalctl -u jack`.
