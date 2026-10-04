@@ -30,6 +30,13 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 - "Forward" in Waveshare's sample: IN1 = 0, IN2 = 1.
 - Sample code PWM frequency: 50 Hz (wiki range: 40–1000 Hz).
 - VIN supply on this build: **12 V**.
+- The Pi itself is powered from the first HAT, off the same 12 V that is
+  bridged to both HATs' VIN and drives the motors (Boss, 2026-10-04). It has
+  no supply of its own. The Pi hung twice (2026-10-03, 2026-10-04), each time
+  while motors were moving, with nothing in the kernel log; a motor kept
+  driving until the Pi was power-cycled, since the PCA9685 holds its last
+  output. A brownout from motor current on the shared supply is the leading
+  suspect (unconfirmed).
 - **Second HAT (added 2026-10-02):** same board, stacked, VIN bridged from
   the first HAT's 12 V. Boss soldered the pad labelled "A4", but a
   read-only I2C scan shows it answering at **`0x41`** (power-on MODE1
