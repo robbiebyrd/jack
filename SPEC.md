@@ -483,7 +483,7 @@ In `poses.toml`: the mouth keeps its lip-sync range 1–6 V (1 V for
 fidelity), slew 48 V/s, close pulse −0.5 V/0.08 s, poses `close` −1 V,
 `relax` +2 V, `open` +6 V. The hand runs 3–6 V both ways (the lowest volts
 that move it both ways), poses `curl` +6 V and `open` −5 V. The pivot runs
-6–7 V, poses `left`/`right` ±6 V for 2 s (about centre to one side). The
+6–7 V, poses `left`/`right` ±6 V for 3 s (about centre to one side, plus a second: Boss, 2026-10-04). The
 hand and pivot slew at 24 V/s (not measured). `holds` are the measured
 points above (hand: +6 V and +5 V 2 s, +3 V 5 s, −1 V 4 s, −3 V 1 s, −5 V
 0.5 s; pivot ±6 V and ±7 V 4 s). The hand's `max_v` is 5 V, since its
