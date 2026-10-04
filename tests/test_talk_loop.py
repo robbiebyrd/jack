@@ -188,3 +188,31 @@ def test_switching_to_live_opens_from_closed_with_a_fresh_lip_sync_not_a_stale_o
     expected = [volts_to_count(fresh.update(level), SUPPLY_VOLTS) for level in levels[7:]]
     assert expected[0] == volts_to_count(-0.96, SUPPLY_VOLTS)
     assert live_drives == without_repeats(expected)
+
+
+def test_switching_to_show_hands_over_the_spent_stall_budget_not_a_fresh_one():
+    # The test mouth holds 1 s (50 ticks) at -6 V. Lip sync holds it fully open for ~40 ticks, then show mode
+    # commands fully open too: the motor must still stop near 50 ticks in all, not after 40 + 50.
+    board = new_board("live")
+
+    class OpenAfterSwitching(SwitchingSource):
+        def take_frames(self):
+            frames = super().take_frames()
+            if self._ticks == self._on_tick:
+                board.set_value("mouth", 1.0)  # a switch drops the mouth's command, so show commands it afresh
+            return frames
+
+    source = OpenAfterSwitching([LOUD] * 70, board, "show", on_tick=41)
+    _, _, board = talk([source], ticks=70, board=board)
+    assert board.status(True)["motors"]["mouth"]["max_hold_tripped"]
+
+
+def test_switching_to_live_hands_over_the_spent_stall_budget_not_a_fresh_one():
+    board = new_board("show")
+    board.set_value("mouth", 1.0)
+    source = SwitchingSource([LOUD] * 70, board, "live", on_tick=41)
+    _, motors, _ = talk([source], ticks=70, board=board)
+    live_drives = [call for call in motors["mouth"].calls[1:] if call[0] == "drive"]
+    # Fully open from tick 1 to the switch, lip sync keeps it there: with a fresh budget it would hold -6 V past
+    # tick 70 and write nothing more; with the spent one it stops (and pulls closed) around tick 50.
+    assert live_drives, "lip sync kept the mouth fully open past its hold"

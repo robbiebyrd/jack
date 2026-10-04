@@ -27,5 +27,14 @@ class StallBudget:
         """True once the drive has gone past the hold."""
         return self._spent > 1.0 + BUDGET_TOLERANCE
 
+    @property
+    def spent(self) -> float:
+        """How much of the whole budget (1) the drive has used since the last rest."""
+        return self._spent
+
+    def take_over(self, spent: float) -> None:
+        """Continue from a budget something else spent driving the same motor, so a hand-over isn't a rest."""
+        self._spent = spent
+
     def refill(self) -> None:
         self._spent = 0.0

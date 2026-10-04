@@ -26,7 +26,8 @@ def check_mouth_gain(settings: TalkSettings, mouth: MotorProfile) -> None:
 class MouthController:
     """Signed volts for the mouth from the smoothed level (dBFS), opening in the direction of its `sign`."""
 
-    def __init__(self, settings: TalkSettings, mouth: MotorProfile):
+    def __init__(self, settings: TalkSettings, mouth: MotorProfile, budget_spent: float = 0.0):
+        """`budget_spent`: stall budget a previous driver of the mouth used, which a mode switch doesn't refill."""
         check_mouth_gain(settings, mouth)
         self._mouth = mouth
         self._gain = 10 ** (settings.mouth_gain_db / 20)
@@ -35,8 +36,14 @@ class MouthController:
         self._magnitude = 0.0
         self._pull_left = 0
         self._budget = StallBudget(mouth)
+        self._budget.take_over(budget_spent)
         # Set when an opening spent the budget; the mouth stays closed until the sound drops below min_v.
         self._waiting_for_quiet = False
+
+    @property
+    def budget_spent(self) -> float:
+        """How much of the mouth's stall budget the current drive has used."""
+        return self._budget.spent
 
     def update(self, level_db: float) -> float:
         """Advance one tick with the current smoothed level and return the mouth voltage."""

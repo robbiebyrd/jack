@@ -32,10 +32,18 @@ class MotorDriver:
         self._pulse_left = 0
         self.max_hold_tripped = False
 
-    def resume_from(self, volts: float) -> None:
-        """Take over a motor something else left at `volts`, so the next update slews (or rests) from there."""
+    @property
+    def budget_spent(self) -> float:
+        """How much of the motor's stall budget the current drive has used."""
+        return self._budget.spent
+
+    def resume_from(self, volts: float, budget_spent: float = 0.0) -> None:
+        """Take over a motor something else left at `volts` after spending `budget_spent` of its stall budget.
+
+        The next update slews (or rests) from there, and the hand-over doesn't refill the budget.
+        """
         self._volts = volts
-        self._budget.refill()
+        self._budget.take_over(budget_spent)
         self._pulse_left = 0
         self.max_hold_tripped = False
 

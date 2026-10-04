@@ -57,11 +57,12 @@ def run_talk_loop(
             mode = board.mouth_mode
             if mode != mouth_mode:
                 if mode == "show":
-                    # Take over from where lip sync left the mouth, so it slews or rest-pulses from there.
-                    drivers["mouth"].resume_from(_volts(applied["mouth"]))
+                    # Take over from where lip sync left the mouth, so it slews or rest-pulses from there,
+                    # with the stall budget lip sync spent: a mode switch is not a rest.
+                    drivers["mouth"].resume_from(_volts(applied["mouth"]), lip_sync.budget_spent)
                 else:
-                    # A fresh lip sync starts closed and opens with its own slew.
-                    lip_sync = MouthController(settings, profiles["mouth"])
+                    # A fresh lip sync starts closed and opens with its own slew, and the budget show spent.
+                    lip_sync = MouthController(settings, profiles["mouth"], drivers["mouth"].budget_spent)
                 mouth_mode = mode
             for name, motor in motors.items():
                 if name == "mouth" and mouth_mode == "live":
