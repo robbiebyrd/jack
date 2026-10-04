@@ -162,7 +162,8 @@ page 5). It is not programmable, but its circuit is a recipe:
 | Gate and drive | IRF510 low-side MOSFET, motor on 4.5 V | Conducts only above the gate threshold (2–4 V per datasheet), a noise gate; one direction, a spring closes the mouth |
 | Unused | LM358 B, 100K/100K divider | 4.5 V bias not connected to anything (ties off the spare op-amp) |
 
-Jack does the same in software (level → gate → proportional drive) with
+Jack does the same in software (amplitude → proportional drive, since
+2026-10-04; at first level → gate → proportional drive) with
 three improvements the board can't make: it closes the mouth actively
 (our mouth holds its pose unpowered, see the calibration table), it limits
 stall time, and it can run the mouth slightly ahead of the sound to hide
@@ -384,7 +385,7 @@ silence while nobody sends.
 | Failure | Behavior |
 |---|---|
 | Mumble server down, or bot disconnected | Bot reconnects (pymumble's `reconnect=True`, every 10 s, if the spike proves it works); the loop keeps playing (ROC, or silence), watchdog pinged. One log line per disconnect and per reconnect. |
-| Gap in voice | Silence is played; the state machine closes the mouth. |
+| Gap in voice | Silence is played; lip sync plays the closing pull and brakes. |
 | Backlog | Dropped per `MAX_BACKLOG_MS`, logged. |
 | ALSA underrun (xrun) | Recover the device, log, continue. |
 | Other ALSA error, or I2C `OSError` | Propagates: all four motors short-brake (`attempt_all`), the process exits, systemd restarts it (see Self-recovery). |
@@ -822,8 +823,8 @@ support them:
   attack/release smoother.
 - `jack/show/audio/talk_settings.py` (domain, pure): `TalkSettings`, every
   tunable in the table above with its starting value, validated.
-- `jack/show/audio/lip_sync.py` (domain, pure): the mouth state machine; level
-  in, signed volts out, one call per tick.
+- `jack/show/audio/lip_sync.py` (domain, pure): the mouth controller; level
+  in, signed volts (amplitude × gain, see "Mouth control") out, one call per tick.
 - `jack/show/audio/frame_queue.py` (domain): `FrameQueue`, a thread-safe,
   bounded queue that cuts arbitrary PCM chunks into frames and drops the
   oldest past its limit.
@@ -919,10 +920,12 @@ support them:
   - Envelope: digital silence reads −90 dBFS, a full-scale sine reads
     about −3.01 dBFS, and a step input rises with `ATTACK_S` and falls
     with `RELEASE_S`.
-  - Lip sync: gate and hysteresis, both ends of the proportional range,
-    the opening slew limit, close pulse length, a syllable interrupting a
-    close, and the stall budget closing a long opening, holding it closed
-    until a pause, and refilling at every close.
+  - Lip sync: silence stays closed; volts proportional to amplitude
+    (twice the amplitude, twice the volts) and capped at `max_v`; the gain
+    shifting the mapping; below `min_v` the closing pull then a brake; a
+    sound interrupting the pull; the opening slew limit; the stall budget
+    closing a long opening, holding it closed until a quiet moment, and
+    refilling at every close; the gain check; replaced settings refused.
   - `FrameQueue` cuts chunks of any length into whole frames, keeps a
     partial frame for the next chunk, drops the oldest frames past its
     limit and reports how many, and stays consistent under concurrent puts.
