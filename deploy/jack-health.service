@@ -1,0 +1,11 @@
+[Unit]
+Description=Jack debug health log: power, temperature, Wi-Fi and motors once a second
+
+[Service]
+# Root, so vcgencmd can read the firmware's power and throttle flags.
+ExecStart=/bin/bash /opt/jack/deploy/jack-health.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -35,3 +35,19 @@ def test_the_journal_survives_reboots_so_a_crash_leaves_its_logs():
     assert "/etc/systemd/journald.conf.d/persistent.conf" in script
     assert "Storage=persistent" in script
     assert "systemctl restart systemd-journald" in script
+
+
+def test_the_journal_reaches_the_sd_card_within_a_second():
+    assert "SyncIntervalSec=1s" in INSTALL.read_text()
+
+
+def test_the_health_log_is_installed_and_started():
+    script = INSTALL.read_text()
+    assert '"$REPO_DIR/deploy/jack-health.service"' in script
+    assert "systemctl enable --now jack-health.service" in script
+
+
+def test_kernel_crashes_are_kept_across_a_reset_and_reboot_the_pi():
+    script = INSTALL.read_text()
+    assert "dtoverlay=ramoops-pi4" in script
+    assert "kernel.panic = 10" in script

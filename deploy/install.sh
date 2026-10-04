@@ -20,10 +20,17 @@ apt-get install -y git python3-smbus2 raspi-config mumble-server python3-alsaaud
 # 0 = enable in raspi-config's non-interactive mode
 raspi-config nonint do_i2c 0
 
-# Keep the journal across reboots, so a crash or hang leaves the logs from before it.
+# Keep the journal across reboots, written to the SD card within a second, so a crash or hang
+# leaves the logs from just before it.
 install -d -m 0755 /etc/systemd/journald.conf.d
-printf '[Journal]\nStorage=persistent\n' > /etc/systemd/journald.conf.d/persistent.conf
+printf '[Journal]\nStorage=persistent\nSyncIntervalSec=1s\n' > /etc/systemd/journald.conf.d/persistent.conf
 systemctl restart systemd-journald
+
+# Keep the kernel's crash log across a reset (moved to /var/lib/systemd/pstore/ on the next boot; takes
+# effect after a reboot), and reboot 10 s after a kernel panic instead of staying frozen.
+grep -qxF 'dtoverlay=ramoops-pi4' /boot/firmware/config.txt || echo 'dtoverlay=ramoops-pi4' >> /boot/firmware/config.txt
+echo 'kernel.panic = 10' > /etc/sysctl.d/90-jack-panic.conf
+echo 10 > /proc/sys/kernel/panic
 
 if ! id jack &>/dev/null; then
   useradd --system --user-group --no-create-home --shell /usr/sbin/nologin --groups i2c,audio jack
@@ -51,10 +58,13 @@ install -m 0644 \
   "$REPO_DIR/deploy/jack.service" \
   "$REPO_DIR/deploy/jack-update.service" \
   "$REPO_DIR/deploy/jack-update.timer" \
+  "$REPO_DIR/deploy/jack-health.service" \
   /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable jack.service jack-update.timer
 systemctl start jack-update.timer
+# Debug log for the Pi's hangs (SPEC.md "Hardware facts").
+systemctl enable --now jack-health.service
 # Restart (or first start) the app so a changed unit takes effect; on a fresh install it can't start until the password is set.
 systemctl restart jack.service || echo "jack.service did not start yet (see: journalctl -u jack); set the password below, then restart it"
 

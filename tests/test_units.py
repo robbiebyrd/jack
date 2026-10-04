@@ -56,3 +56,10 @@ def test_updater_timer_polls_every_60_seconds_precisely():
     assert unit["Timer"]["OnUnitActiveSec"] == "60"
     assert unit["Timer"]["AccuracySec"] == "1s"
     assert unit["Install"]["WantedBy"] == "timers.target"
+
+
+def test_the_health_log_runs_from_the_checkout_at_boot_and_restarts():
+    unit = load_unit("jack-health.service")
+    assert unit["Service"]["ExecStart"] == "/bin/bash /opt/jack/deploy/jack-health.sh"
+    assert unit["Service"]["Restart"] == "always"
+    assert unit["Install"]["WantedBy"] == "multi-user.target"
