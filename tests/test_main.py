@@ -9,6 +9,7 @@ from jack.show.motion.ramp import segment_profile
 from jack.show.motion.speech import MAX_PHRASE_S, random_phrase
 from jack.show.audio.talk_settings import TalkSettings
 from tests.fakes import RecordingBus
+from tests.profiles import MOUTH
 
 
 def test_sigterm_handler_raises_system_exit_so_cleanup_runs():
@@ -284,3 +285,18 @@ def test_a_missing_roc_recv_exits_saying_what_to_install(monkeypatch, tmp_path):
 
 def test_mouth_gain_can_be_set_in_jack_env():
     assert main.talk_settings({"JACK_MOUTH_GAIN_DB": "10"}).mouth_gain_db == 10.0
+
+
+@pytest.mark.parametrize("var", ["JACK_GATE_OPEN_DB", "JACK_GATE_CLOSE_DB", "JACK_FULL_DB", "JACK_OPEN_CURVE"])
+def test_a_replaced_lip_sync_setting_stops_the_app_saying_what_replaced_it(var):
+    with pytest.raises(SystemExit) as exit_info:
+        main.talk_settings({var: "-20"})
+    message = str(exit_info.value.code)
+    assert var in message and "JACK_MOUTH_GAIN_DB" in message and "amplitude" in message
+
+
+def test_a_mouth_gain_that_would_open_the_mouth_on_silence_stops_the_app():
+    with pytest.raises(SystemExit) as exit_info:
+        main.check_mouth_settings(TalkSettings(mouth_gain_db=80.0), {"mouth": MOUTH})
+    assert "mouth_gain_db" in str(exit_info.value.code)
+    main.check_mouth_settings(TalkSettings(), {"mouth": MOUTH})

@@ -17,6 +17,7 @@ from smbus2 import SMBus
 
 from main import ALSA_DEVICE, ALSA_PERIODS, DEFAULT_CONTROL_TIMEOUT_S, I2C_BUS, POSES_PATHS, SUPPLY_VOLTS, build_motors
 from jack.adapters.audio.alsa_sink import open_alsa_sink
+from jack.show.audio.lip_sync import check_mouth_gain
 from jack.show.control.control_board import ControlBoard
 from jack.show.audio.pcm import TICKS_PER_SECOND
 from jack.show.motion.poses import load_profiles
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = settings_from_args(args)
         profiles = load_profiles(POSES_PATHS, SUPPLY_VOLTS)
+        check_mouth_gain(settings, profiles["mouth"])
         source = WavSource(args.wav)
     except (ValueError, OSError) as error:
         print(tool_error_message(error), file=sys.stderr)

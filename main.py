@@ -22,6 +22,7 @@ from jack.show.motion.motors import MOTORS
 from jack.show.motion.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
 from jack.adapters.audio.mumble_voice import MumbleVoice, connect_mumble
 from jack.adapters.audio.roc_voice import RocVoice, roc_recv_command
+from jack.show.audio.lip_sync import check_mouth_gain
 from jack.show.control.osc_feedback import Subscribers
 from jack.adapters.network.osc_server import OscEndpoint, start_feedback
 from jack.adapters.hardware.pca9685 import Pca9685
@@ -59,6 +60,8 @@ MOVED_TO_POSES = {
     "close_v": "rest_pulse_v",
     "close_s": "rest_pulse_s",
 }
+# Lip-sync settings replaced when the mouth began following the audio's amplitude (SPEC.md "Mouth control").
+REPLACED_BY_MOUTH_GAIN = ("gate_open_db", "gate_close_db", "full_db", "open_curve")
 # Show control (SPEC.md "Show control"); every value can be set in /etc/jack/jack.env.
 DEFAULT_OSC_PORT = 9000
 DEFAULT_HTTP_PORT = 8080
@@ -132,13 +135,20 @@ def mumble_password(environ: Mapping[str, str] = os.environ) -> str:
 
 
 def talk_settings(environ: Mapping[str, str] = os.environ) -> TalkSettings:
-    """TalkSettings defaults, with any JACK_<FIELD> environment variable (e.g. JACK_GATE_OPEN_DB=-20) overriding that field."""
+    """TalkSettings defaults, with any JACK_<FIELD> environment variable (e.g. JACK_MOUTH_GAIN_DB=20) overriding that field."""
     for field, key in MOVED_TO_POSES.items():
         var = SETTING_ENV_PREFIX + field.upper()
         if environ.get(var):
             raise SystemExit(
                 f"{var} moved to the mouth's entry in /etc/jack/poses.toml as {key}; "
                 "remove it from /etc/jack/jack.env, then: sudo systemctl restart jack"
+            )
+    for field in REPLACED_BY_MOUTH_GAIN:
+        var = SETTING_ENV_PREFIX + field.upper()
+        if environ.get(var):
+            raise SystemExit(
+                f"{var} is gone: lip sync now follows the audio's amplitude. Remove it from /etc/jack/jack.env, "
+                "tune JACK_MOUTH_GAIN_DB instead, then: sudo systemctl restart jack"
             )
     overrides: dict[str, float] = {}
     for field in dataclasses.fields(TalkSettings):
@@ -160,6 +170,14 @@ def motor_profiles(paths: tuple[Path, ...] = POSES_PATHS) -> dict[str, MotorProf
         return load_profiles(paths, SUPPLY_VOLTS)
     except (ValueError, OSError) as error:
         raise SystemExit(f"Motor settings are invalid: {error}") from error
+
+
+def check_mouth_settings(settings: TalkSettings, profiles: Mapping[str, MotorProfile]) -> None:
+    """Lip sync's gain against the mouth's volts, or a one-line exit naming the problem."""
+    try:
+        check_mouth_gain(settings, profiles["mouth"])
+    except ValueError as error:
+        raise SystemExit(f"Mouth settings from /etc/jack/jack.env are invalid: {error}") from error
 
 
 def describe_overrides(settings: TalkSettings) -> str:
@@ -278,6 +296,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, exit_on_sigterm)
     settings = talk_settings()
     profiles = motor_profiles()
+    check_mouth_settings(settings, profiles)
     config = show_control_config()
     roc = roc_config()
     if overrides := describe_overrides(settings):

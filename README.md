@@ -91,22 +91,26 @@ and 60 ms broke up.
 
 ### Tuning the lip sync
 
-If the mouth barely moves (for example with a quiet ROC stream), raise `JACK_MOUTH_GAIN_DB` in
-`/etc/jack/jack.env`, e.g. `JACK_MOUTH_GAIN_DB=10`, and restart Jack. It makes only the mouth react
-more; the sound from Jack's speaker doesn't change. Each +10 dB makes a voice 10 dB quieter open
-the mouth as wide as before.
+The mouth's voltage follows the audio's amplitude: twice as loud (in amplitude) opens it twice as far,
+up to fully open. `JACK_MOUTH_GAIN_DB` in `/etc/jack/jack.env` sets how far a sound opens it (default
+`14`: a −14 dBFS sound opens it fully; each +6 dB doubles how far any sound opens it). If the mouth
+barely moves, raise it; if it opens on background noise or never closes, lower it. It changes only the
+mouth; the sound from Jack's speaker doesn't change. A gain at which silence would open the mouth is
+refused at startup. When the sound drops below the mouth's smallest opening, the mouth gets a short
+closing pull (`rest_pulse_v`/`rest_pulse_s` under `[mouth]` in `/etc/jack/poses.toml`), then brakes.
 
 Quickest: override any setting on the Pi. Add `JACK_<SETTING_NAME>` lines to `/etc/jack/jack.env`
 (names are the fields of `jack/show/audio/talk_settings.py`, upper-case) and restart. The mouth's
 volts are not among them: `min_v`, `max_v`, `slew_v_per_s`, `rest_pulse_v` and `rest_pulse_s` are
 tuned in `/etc/jack/poses.toml` under `[mouth]` (the app refuses to start if the old
 `JACK_OPEN_MIN_V`, `JACK_OPEN_MAX_V`, `JACK_OPEN_SLEW_V_PER_S`, `JACK_CLOSE_V` or `JACK_CLOSE_S` is
-still set):
+still set, and likewise if the replaced `JACK_GATE_OPEN_DB`, `JACK_GATE_CLOSE_DB`, `JACK_FULL_DB` or
+`JACK_OPEN_CURVE` is still set):
 
 ```bash
 # /etc/jack/jack.env
-JACK_GATE_OPEN_DB=-20
-JACK_OPEN_CURVE=1.5
+JACK_MOUTH_GAIN_DB=20
+JACK_ATTACK_S=0.02
 ```
 
 ```bash

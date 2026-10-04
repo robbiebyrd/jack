@@ -66,3 +66,9 @@ def test_unreadable_app_config_says_to_run_as_jack(monkeypatch, capsys, unreadab
     monkeypatch.setattr(lipsync_wav, "POSES_PATHS", (lipsync_wav.POSES_PATHS[0], unreadable_app_config))
     assert lipsync_wav.main(["voice.wav"]) == 2
     assert "sudo -u jack" in capsys.readouterr().err
+
+
+def test_a_mouth_gain_that_would_open_the_mouth_on_silence_is_rejected_before_touching_hardware(monkeypatch, capsys):
+    monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
+    assert lipsync_wav.main(["voice.wav", "--mouth-gain-db", "80"]) == 2
+    assert "mouth_gain_db" in capsys.readouterr().err
