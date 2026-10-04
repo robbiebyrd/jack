@@ -93,20 +93,21 @@ def budgeted():
 
 
 def test_a_long_full_open_closes_when_its_hold_is_spent():
-    volts = run(budgeted(), [FULL] * (20 + CLOSE_TICKS + 1))
-    assert volts == pytest.approx([-6.0] * 20 + [0.5] * CLOSE_TICKS + [0.0])
+    # The spent budget rests one 0 V tick (refilling it) before the closing pull.
+    volts = run(budgeted(), [FULL] * (20 + 1 + CLOSE_TICKS + 1))
+    assert volts == pytest.approx([-6.0] * 20 + [0.0] + [0.5] * CLOSE_TICKS + [0.0])
 
 
 def test_a_smaller_opening_runs_for_its_longer_hold():
     # At 1.01 V the hold interpolates to 2.0 - 1.6 x 0.01 / 5 = 1.9968 s: each tick spends 0.02 / 1.9968, so 99
     # ticks fit and the 100th (1.0016 of the budget) closes the mouth: 50x longer than at full open.
     volts = run(budgeted(), [level_for(1.01)] * 100)
-    assert volts == pytest.approx([-1.01] * 99 + [0.5])
+    assert volts == pytest.approx([-1.01] * 99 + [0.0])
 
 
 def test_a_spent_mouth_stays_closed_through_sound_until_a_quiet_moment():
     controller = budgeted()
-    run(controller, [FULL] * (20 + CLOSE_TICKS))
+    run(controller, [FULL] * (20 + 1 + CLOSE_TICKS))  # spent, a 0 V rest, then the whole pull
     assert run(controller, [FULL, level_for(1.5), FULL]) == [0.0, 0.0, 0.0]
     assert controller.update(QUIET) == 0.0
     assert run(controller, [FULL] * 20) == pytest.approx([-6.0] * 20)
@@ -115,7 +116,8 @@ def test_a_spent_mouth_stays_closed_through_sound_until_a_quiet_moment():
 def test_closing_between_syllables_refills_the_budget():
     controller = budgeted()
     run(controller, [FULL] * 19)
-    run(controller, [QUIET] * (CLOSE_TICKS + 1))
+    # The pull spends the nearly spent budget, which rests a tick mid-pull; the 0 V tick after the pull refills it.
+    assert run(controller, [QUIET] * (CLOSE_TICKS + 2)) == pytest.approx([0.5, 0.5, 0.0, 0.5, 0.5, 0.0])
     assert run(controller, [FULL] * 20) == pytest.approx([-6.0] * 20)
 
 
@@ -139,3 +141,14 @@ def test_a_gain_at_which_silence_would_open_the_mouth_is_refused():
         check_mouth_gain(TalkSettings(mouth_gain_db=75.0), MOUTH)
     with pytest.raises(ValueError, match="mouth_gain_db"):
         MouthController(TalkSettings(mouth_gain_db=75.0), MOUTH)
+
+
+def test_flicker_at_the_threshold_cannot_stack_closing_pulls_past_the_hold():
+    # The test mouth holds 1 s at every voltage it uses (its -3 V opening and +0.5 V pull): 50 ticks of drive
+    # between 0 V rests. Sound flickering one tick above min_v and four below would otherwise pull forever.
+    volts = run(unslewed(), [level_for(3.0), QUIET, QUIET, QUIET, QUIET] * 30)
+    longest_drive = current = 0
+    for v in volts:
+        current = current + 1 if v != 0.0 else 0
+        longest_drive = max(longest_drive, current)
+    assert longest_drive <= 50

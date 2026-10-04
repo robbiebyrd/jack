@@ -57,12 +57,18 @@ class MouthController:
         return self._close()
 
     def _close(self) -> float:
-        """The closing pull after an opening, then 0 V (short brake)."""
+        """The closing pull after an opening, then 0 V (short brake).
+
+        Pull ticks spend the stall budget too, and only a 0 V tick (a rest) refills it, so sound flickering
+        around min_v can't stack pulls past the mouth's holds; a spent budget rests a tick before pulling.
+        """
         if self._magnitude > 0:
             self._magnitude = 0.0
             self._pull_left = self._pull_ticks
-            self._budget.refill()
-        if self._pull_left > 0:
-            self._pull_left -= 1
-            return self._mouth.rest_pulse_v
+        if self._pull_left > 0 and not self._budget.exhausted:
+            self._budget.spend(self._mouth.rest_pulse_v)
+            if not self._budget.exhausted:
+                self._pull_left -= 1
+                return self._mouth.rest_pulse_v
+        self._budget.refill()
         return 0.0
