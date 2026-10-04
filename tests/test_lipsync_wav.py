@@ -72,3 +72,9 @@ def test_a_mouth_gain_that_would_open_the_mouth_on_silence_is_rejected_before_to
     monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
     assert lipsync_wav.main(["voice.wav", "--mouth-gain-db", "80"]) == 2
     assert "mouth_gain_db" in capsys.readouterr().err
+
+
+def test_the_usage_example_in_the_docstring_parses():
+    example = next(line for line in lipsync_wav.__doc__.splitlines() if "lipsync_wav.py " in line)
+    args = example.split("lipsync_wav.py ", 1)[1].split()
+    lipsync_wav.build_parser().parse_args(args)

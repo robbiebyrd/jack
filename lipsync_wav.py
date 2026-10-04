@@ -2,7 +2,7 @@
 
 Stop the app first so the two programs don't fight over the HAT and the sound card:
     sudo systemctl stop jack
-    sudo -u jack /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py voice.wav --gate-open-db -30 --release-s 0.1
+    sudo -u jack /opt/jack-venv/bin/python /opt/jack/lipsync_wav.py voice.wav --mouth-gain-db 20 --release-s 0.1
 The WAV must be mono 16-bit 48 kHz. Settings are in jack/show/audio/talk_settings.py;
 the mouth's voltages are in poses.toml. Run it as jack: only jack can read the overrides in /etc/jack.
 """
