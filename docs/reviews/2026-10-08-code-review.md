@@ -18,7 +18,8 @@ this review, with the suite green after each (775 tests, 2 skipped under root):
    runs ruff and pytest on 3.11 and 3.13; the two root-sensitive tests skip under uid 0.
 2. The demo is retired. The permission layer of this session refused `git rm`, so the four
    modules sit in `docs/archive/retired-demo/` (unimported, untested) with a README; tag
-   `pre-show-control-demo` marks the last commit with them live. Delete the directory at will.
+   `pre-show-control-demo` (local only; commit 63f9ba8) marks the last commit with them live. Delete the
+   directory at will.
 3. `jack/application/config.py` (`AppConfig`, `ConfigError`), `jack/adapters/system/deployment.py`
    and `jack/adapters/hardware/motor_hats.py` exist; `main.py` is a 140-line composition root and
    nothing imports it.
