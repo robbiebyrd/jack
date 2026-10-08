@@ -3,22 +3,16 @@ import math
 
 import pytest
 
+from jack.show.control.commands import CommandError, RestCommand, SetMouthMode, SetValue, StartPose
 from jack.show.control.control_board import ControlBoard
 from jack.show.control.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
-from jack.show.control.show_commands import (
-    CommandError,
+from jack.show.control.osc_protocol import (
     OscContext,
     Ping,
-    RestCommand,
-    SetMouthMode,
-    SetValue,
-    StartPose,
     StatusRequest,
     Subscribe,
     Unsubscribe,
-    apply,
     handle_osc,
-    http_command,
     osc_command,
 )
 from jack.support.rate_limited_log import RateLimitedLog
@@ -30,10 +24,6 @@ def osc(address, *args):
     return osc_command(address, list(args), PROFILES)
 
 
-def http(path, body=None):
-    return http_command(path, body or {}, PROFILES)
-
-
 def test_osc_routes():
     assert osc("/jack/hand", 0.5) == SetValue("hand", 0.5, 0.5)
     assert osc("/jack/hand/pose", "curl") == StartPose("hand", "curl", None)
@@ -41,14 +31,6 @@ def test_osc_routes():
     assert osc("/jack/hand/rest") == RestCommand("hand")
     assert osc("/jack/rest") == RestCommand(None)
     assert osc("/jack/mouth/mode", "show") == SetMouthMode("show")
-
-
-def test_http_routes_match_osc():
-    assert http("/hand", {"value": 0.5}) == SetValue("hand", 0.5, 0.5)
-    assert http("/hand/pose", {"name": "curl", "seconds": 2}) == StartPose("hand", "curl", 2.0)
-    assert http("/hand/rest") == RestCommand("hand")
-    assert http("/rest") == RestCommand(None)
-    assert http("/mouth/mode", {"mode": "live"}) == SetMouthMode("live")
 
 
 def test_values_are_clamped_to_the_motors_range():
@@ -82,41 +64,8 @@ def test_bad_osc_is_rejected_with_a_status(address, args, status):
     assert error.value.status == status
 
 
-def test_unexpected_http_fields_are_rejected():
-    with pytest.raises(CommandError) as error:
-        http("/hand", {"value": 0.5, "speed": 2})
-    assert error.value.status == 400 and "speed" in str(error.value)
-
-
 def board(mode="live"):
     return ControlBoard(PROFILES, 0.5, mode, FakeClock())
-
-
-def test_apply_drives_the_board():
-    b = board()
-    apply(SetValue("hand", 1.0, 1.0), b)
-    assert b.target_volts("hand") == 2.0
-    apply(StartPose("elbow", "up", None), b)
-    assert b.target_volts("elbow") == 2.0
-    apply(RestCommand(None), b)
-    assert b.target_volts("hand") is None
-    apply(SetMouthMode("show"), b)
-    assert b.mouth_mode == "show"
-
-
-@pytest.mark.parametrize("command", [SetValue("mouth", 0.5, 0.5), StartPose("mouth", "open", None)])
-def test_mouth_commands_conflict_with_live_mode(command):
-    b = board("live")
-    with pytest.raises(CommandError) as error:
-        apply(command, b)
-    assert error.value.status == 409
-    assert b.target_volts("mouth") is None
-
-
-def test_mouth_commands_work_in_show_mode():
-    b = board("show")
-    apply(SetValue("mouth", 1.0, 1.0), b)
-    assert b.target_volts("mouth") == -6.0
 
 
 SENDER = ("10.10.0.22", 9000)
@@ -233,13 +182,6 @@ def test_extra_arguments_to_ping_and_status_are_rejected(address):
     assert error.value.status == 400
 
 
-@pytest.mark.parametrize("path", ["/ping", "/status", "/subscribe", "/unsubscribe"])
-def test_osc_only_routes_are_not_http_commands(path):
-    with pytest.raises(CommandError) as error:
-        http_command(path, {}, PROFILES)
-    assert error.value.status == 404
-
-
 @pytest.mark.parametrize("address", ["/jack/ping", "/jack/status"])
 def test_a_failed_reply_is_logged_with_its_destination_not_raised(address):
     lines, clock = [], FakeClock()
@@ -261,12 +203,6 @@ def test_unsubscribe_without_a_port_removes_a_subscription_made_without_one():
     assert len(context.subscribers) == 1
     handle_osc("/jack/unsubscribe", [], SENDER, context)
     assert len(context.subscribers) == 0
-
-
-def test_integer_too_large_for_a_float_is_a_400():
-    with pytest.raises(CommandError) as error:
-        http_command("/hand", {"value": 10**400}, PROFILES)
-    assert error.value.status == 400
 
 
 @pytest.mark.parametrize("args", [[21601.0], [21601]])
@@ -403,12 +339,6 @@ def test_string_mouth_mode_still_works_and_show_address_needs_a_number():
     assert osc_command("/jack/mouth/mode", ["show"], PROFILES) == SetMouthMode("show")
     with pytest.raises(CommandError):
         osc_command("/jack/mouth/mode/show", ["show"], PROFILES)
-
-
-def test_per_pose_address_is_osc_only():
-    with pytest.raises(CommandError) as error:
-        http_command("/elbow/pose/up", {}, PROFILES)
-    assert error.value.status == 404
 
 
 def test_a_momentary_rest_button_rests_once_and_logs_nothing():

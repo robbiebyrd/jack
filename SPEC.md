@@ -577,7 +577,7 @@ Jack answers and reports state over OSC, as well as taking commands.
 - **Structure:**
   - `jack/show/control/osc_feedback.py` (pure, injected clock) turns a ControlBoard status into state messages, detects changes per subscriber, and keeps the subscriber list (expiry, cap).
   - A daemon "osc-feedback" thread in `jack/adapters/network/osc_server.py` reads the board every 20 ms and sends. The talk loop never does network I/O, so a slow network can't stall the motors.
-  - The ping, status, subscribe and unsubscribe routes are parsed in `show_commands.py` like every other command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
+  - The ping, status, subscribe and unsubscribe routes are parsed in `osc_protocol.py` with the same care as every command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
 - **Not provided:** OSC over TCP, authentication, protection against a LAN host subscribing on another host's behalf or filling the 8 slots (follows from no authentication; bounded by the cap and the 60 s lease), and feedback over HTTP (HTTP has `/status`).
 
 ### TouchOSC support (Boss uses TouchOSC; designed 2026-10-02)
@@ -626,10 +626,15 @@ Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
 - On macOS 15+, the browser may need Local Network permission to reach
   `http://10.10.0.54:8080`, as the Mumble client did.
 
-Both protocols go through one pure translation module,
-`jack/show/control/show_commands.py`, which turns an OSC address + arguments or an
-HTTP path + JSON body into board commands; all validation and clamping
-live there, so OSC and HTTP behave identically.
+Both protocols go through one pure set of routes,
+`jack/show/control/routes.py`, which turns a route (an OSC address below
+`/jack`, or an HTTP path) and its named parameters (OSC arguments by
+position, an HTTP JSON body by name) into the commands in
+`jack/show/control/commands.py`; all validation and clamping live there, so
+OSC and HTTP behave identically. `jack/show/control/osc_protocol.py` adds
+what only OSC has: the queries, TouchOSC's button and port forms, and the
+rate-limited log of ignored messages. `/status` and the OSC feedback both
+read one `Status` snapshot (`jack/show/control/status.py`) from the board.
 
 ### Calibration for every motor
 
@@ -694,14 +699,14 @@ jack/
   show/                 pure logic: no hardware, network, sound card or systemd
     audio/      pcm, envelope, frame_queue, lip_sync, talk_settings
     motion/     motors, poses, motor_driver, stall_budget, ramp, segments
-    control/    control_board, show_commands, osc_feedback
+    control/    control_board, status, commands, routes, osc_protocol, osc_feedback
   application/  ports, config, talk_loop, calibration
   adapters/
     hardware/   pca9685, tb6612_motor, motor_hats
     audio/      alsa_sink, mumble_voice, wav_source
     network/    osc_server, http_server, control_page.html
     system/     systemd_notify, service_guard, deployment
-  support/      attempt_all, rate_limited_log
+  support/      attempt_all, rate_limited_log, clip
 ```
 
 - `show/` is Jack's show itself: what the motors, voice and controls mean,
@@ -728,9 +733,9 @@ jack/
   keep their `motor_test` paths as a record of what was built then.
 
 Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
-`control_board.py`, `show_commands.py`, `osc_server.py`, `http_server.py`,
-`control_page.html`) are described in "Show control". Two more modules
-support them:
+`control_board.py`, `status.py`, `commands.py`, `routes.py`,
+`osc_protocol.py`, `osc_server.py`, `http_server.py`, `control_page.html`)
+are described in "Show control". Two more modules support them:
 
 - `jack/show/motion/motor_driver.py` (domain, pure): `MotorDriver`, one per
   motor, turns the commanded volts (or None for rest) into its drive each
@@ -740,6 +745,8 @@ support them:
 - `jack/support/rate_limited_log.py`: `RateLimitedLog(print, interval_s,
   clock)`, a callable that lets one line per key through per interval, so a
   flood of bad OSC messages stays one journal line per kind per minute.
+- `jack/support/clip.py`: `clip(value)` shortens text from the network to
+  200 characters before it is logged.
 
 - `jack/show/motion/ramp.py` (domain, pure): waveforms as signed 12-bit duty
   counts (negative = backward). `segment_profile(segments, supply_volts,

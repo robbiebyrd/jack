@@ -144,7 +144,7 @@ def test_what_was_driven_is_reported_to_the_board():
     board = new_board()
     board.set_value("hand", 1.0)
     talk([ScriptedSource([])], ticks=2, board=board)
-    assert board.status(False)["motors"]["hand"]["volts"] == 2.0
+    assert board.status(False).motors["hand"].volts == 2.0
 
 
 def test_a_sound_card_failure_brakes_every_motor_and_closes_the_sink():
@@ -198,7 +198,7 @@ def test_switching_to_show_hands_over_the_spent_stall_budget_not_a_fresh_one():
 
     source = OpenAfterSwitching([LOUD] * 70, board, "show", on_tick=41)
     _, _, board = talk([source], ticks=70, board=board)
-    assert board.status(True)["motors"]["mouth"]["max_hold_tripped"]
+    assert board.status(True).motors["mouth"].max_hold_tripped
 
 
 def test_switching_to_live_hands_over_the_spent_stall_budget_not_a_fresh_one():

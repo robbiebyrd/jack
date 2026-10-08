@@ -5,9 +5,10 @@ and in between only the messages whose value changed. See "OSC replies and feedb
 """
 
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from jack.show.control.status import Status
 from jack.show.motion.motors import MOTOR_NAMES
 
 Message = tuple[str, list]
@@ -18,7 +19,7 @@ MAX_SUBSCRIBERS = 8
 FULL_REFRESH_S = 1.0
 
 
-def state_messages(status: Mapping) -> list[Message]:
+def state_messages(status: Status) -> list[Message]:
     """The state messages for a ControlBoard.status() snapshot, in a fixed order.
 
     `/jack/<motor>` mirrors the fader value: the current value command, 0 at rest or during a pose.
@@ -26,14 +27,13 @@ def state_messages(status: Mapping) -> list[Message]:
     """
     messages: list[Message] = []
     for name in MOTOR_NAMES:
-        motor = status["motors"][name]
-        command = motor.get("command") or {}
-        messages.append((f"/jack/{name}", [float(command.get("value", 0.0))]))
-        messages.append((f"/jack/{name}/volts", [float(motor["volts"])]))
-        messages.append((f"/jack/{name}/max_hold", [int(bool(motor["max_hold_tripped"]))]))
-    messages.append(("/jack/mouth/mode", [status["mouth_mode"]]))
-    messages.append(("/jack/mouth/mode/show", [1.0 if status["mouth_mode"] == "show" else 0.0]))
-    messages.append(("/jack/mumble", [int(bool(status["mumble_connected"]))]))
+        motor = status.motors[name]
+        messages.append((f"/jack/{name}", [float(motor.fader_value)]))
+        messages.append((f"/jack/{name}/volts", [float(motor.volts)]))
+        messages.append((f"/jack/{name}/max_hold", [int(motor.max_hold_tripped)]))
+    messages.append(("/jack/mouth/mode", [status.mouth_mode]))
+    messages.append(("/jack/mouth/mode/show", [1.0 if status.mouth_mode == "show" else 0.0]))
+    messages.append(("/jack/mumble", [int(status.mumble_connected)]))
     return messages
 
 

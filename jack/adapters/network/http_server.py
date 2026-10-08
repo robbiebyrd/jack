@@ -11,8 +11,9 @@ from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from jack.show.control.commands import CommandError, apply
 from jack.show.control.control_board import ControlBoard
-from jack.show.control.show_commands import CommandError, apply, http_command
+from jack.show.control.routes import command_for
 from jack.show.motion.poses import MotorProfile
 
 MAX_BODY_BYTES = 4096
@@ -44,12 +45,12 @@ def start_http_server(
             if self.path == "/":
                 self._send(200, "text/html; charset=utf-8", page)
             elif self.path == "/status":
-                self._json(200, board.status(mumble_connected()))
+                self._json(200, board.status(mumble_connected()).to_json())
             else:
                 self._json(404, {"error": f"no page at {self.path}"})
 
         def _post(self) -> None:
-            apply(http_command(self.path, self._body(), profiles), board)
+            apply(command_for(self.path, self._body(), profiles), board)
             self._json(200, {"ok": True})
 
         def _respond(self, handle: Callable[[], None]) -> None:

@@ -10,6 +10,7 @@ from pythonosc.udp_client import SimpleUDPClient
 
 from jack.adapters.network.osc_server import OscEndpoint, start_feedback
 from jack.show.control.osc_feedback import Subscribers, state_messages
+from jack.show.control.status import MotorStatus, Status
 
 
 def serve(on_message=None):
@@ -162,11 +163,10 @@ def test_packets_sent_before_serve_wait_in_the_socket_until_the_handler_is_insta
 
 
 def feedback_snapshot():
-    return {
-        "mouth_mode": "live",
-        "mumble_connected": True,
-        "motors": {n: {"volts": 0.0, "max_hold_tripped": False} for n in ("mouth", "hand", "pivot", "elbow")},
-    }
+    resting = MotorStatus(command=None, volts=0.0, max_hold_tripped=False, calibrated=True, two_sided=False, poses=())
+    return Status(
+        mouth_mode="live", mumble_connected=True, motors=dict.fromkeys(("mouth", "hand", "pivot", "elbow"), resting)
+    )
 
 
 def test_feedback_thread_sends_the_full_set_to_a_subscriber_then_stops():

@@ -36,7 +36,7 @@ from jack.application.config import AppConfig, ConfigError, RocConfig, describe_
 from jack.application.talk_loop import run_talk_loop
 from jack.show.control.control_board import ControlBoard
 from jack.show.control.osc_feedback import Subscribers
-from jack.show.control.show_commands import OscContext, handle_osc
+from jack.show.control.osc_protocol import OscContext, handle_osc
 from jack.show.motion.motors import SUPPLY_VOLTS
 from jack.support.rate_limited_log import RateLimitedLog
 

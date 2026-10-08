@@ -9,7 +9,7 @@ from pythonosc.osc_message_builder import OscMessageBuilder
 from jack.adapters.network.osc_server import OscEndpoint, start_feedback
 from jack.show.control.control_board import ControlBoard
 from jack.show.control.osc_feedback import Subscribers, state_messages
-from jack.show.control.show_commands import OscContext, handle_osc
+from jack.show.control.osc_protocol import OscContext, handle_osc
 from jack.support.rate_limited_log import RateLimitedLog
 from tests.profiles import PROFILES
 
