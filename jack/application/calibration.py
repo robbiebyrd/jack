@@ -3,10 +3,10 @@
 import math
 from collections.abc import Callable
 
-from jack.show.motion.mouth import Segment, describe, hold, ramp
 from jack.application.ports import MotorOutput
 from jack.show.motion.poses import MotorProfile, Pose
 from jack.show.motion.ramp import segment_profile
+from jack.show.motion.segments import Segment, describe, hold, ramp
 
 # Longest single move, so a typo can't hold the motor stalled against an end stop for long.
 MAX_MOVE_S = 3.0
@@ -40,7 +40,10 @@ def parse_command(line: str, supply_volts: float, profile: MotorProfile, step_s:
 
 
 def pose_segments(pose: Pose, seconds: float, slew_v_per_s: float, step_s: float) -> tuple[Segment, ...]:
-    """Ramp from 0 V to the pose's volts, rounded up to whole steps (at least one) so it is never faster than the slew limit, then hold."""
+    """Ramp from 0 V to the pose's volts, then hold.
+
+    The ramp is rounded up to whole steps (at least one) so it is never faster than the slew limit.
+    """
     ramp_steps = max(1, math.ceil(abs(pose.volts) / slew_v_per_s / step_s - 1e-9))
     return (ramp(0.0, pose.volts, ramp_steps * step_s), hold(pose.volts, seconds))
 

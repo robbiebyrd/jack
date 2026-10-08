@@ -15,16 +15,20 @@ from collections.abc import Callable
 
 from smbus2 import SMBus
 
-from main import ALSA_DEVICE, ALSA_PERIODS, DEFAULT_CONTROL_TIMEOUT_S, I2C_BUS, POSES_PATHS, SUPPLY_VOLTS, build_motors
 from jack.adapters.audio.alsa_sink import open_alsa_sink
-from jack.show.audio.lip_sync import check_mouth_gain
-from jack.show.control.control_board import ControlBoard
-from jack.show.audio.pcm import TICKS_PER_SECOND
-from jack.show.motion.poses import load_profiles
-from jack.adapters.system.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
-from jack.application.talk_loop import run_talk_loop
-from jack.show.audio.talk_settings import TalkSettings
 from jack.adapters.audio.wav_source import WavSource
+from jack.adapters.hardware.motor_hats import build_motors
+from jack.adapters.system.deployment import ALSA_DEVICE, ALSA_PERIODS, I2C_BUS, POSES_PATHS, PWM_FREQ_HZ
+from jack.adapters.system.logging_setup import configure_logging
+from jack.adapters.system.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
+from jack.application.config import DEFAULT_CONTROL_TIMEOUT_S
+from jack.application.talk_loop import run_talk_loop
+from jack.show.audio.lip_sync import check_mouth_gain
+from jack.show.audio.pcm import TICKS_PER_SECOND
+from jack.show.audio.talk_settings import TalkSettings
+from jack.show.control.control_board import ControlBoard
+from jack.show.motion.motors import SUPPLY_VOLTS
+from jack.show.motion.poses import load_profiles
 
 # Keep running this long after the WAV ends so the mouth closes before the motors brake.
 TAIL_TICKS = TICKS_PER_SECOND
@@ -44,7 +48,7 @@ def settings_from_args(args: argparse.Namespace) -> TalkSettings:
     return TalkSettings(**{field.name: getattr(args, field.name) for field in dataclasses.fields(TalkSettings)})
 
 
-def after_tail(source, tail_ticks: int) -> Callable[[], bool]:
+def after_tail(source: WavSource, tail_ticks: int) -> Callable[[], bool]:
     """An `until` check for the talk loop: true once `tail_ticks` ticks have run after the source finished."""
     remaining = tail_ticks
 
@@ -72,10 +76,15 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError) as error:
         print(tool_error_message(error), file=sys.stderr)
         return 2
+    configure_logging()
     print(f"Playing {args.wav} on {ALSA_DEVICE} with {settings}")
     with SMBus(I2C_BUS) as bus:
-        sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
-        motors = build_motors(bus)
+        sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS)
+        try:
+            motors = build_motors(bus, PWM_FREQ_HZ)
+        except OSError as error:
+            print(tool_error_message(error), file=sys.stderr)
+            return 2
         try:
             run_talk_loop(
                 [source],

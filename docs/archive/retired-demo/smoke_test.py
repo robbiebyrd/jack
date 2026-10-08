@@ -2,8 +2,8 @@
 
 from collections.abc import Callable, Sequence
 
-from jack.support.attempt_all import attempt_all
 from jack.application.ports import MotorOutput
+from jack.support.attempt_all import attempt_all
 
 
 def run_profiles_loop(

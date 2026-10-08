@@ -1,13 +1,21 @@
-"""OSC over UDP for show control: receive commands, send replies and feedback. The only module that imports python-osc."""
+"""OSC over UDP for show control: receive commands, send replies and feedback.
 
+The only module that imports python-osc.
+"""
+
+import logging
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.osc_server import ThreadingOSCUDPServer
 
 from jack.show.control.osc_feedback import Destination, Message, Subscribers, state_messages
+from jack.show.control.status import Status
+from jack.support.rate_limit import rate_limited
+
+log = logging.getLogger(__name__)
 
 FEEDBACK_INTERVAL_S = 0.02
 
@@ -30,7 +38,7 @@ class OscEndpoint:
     def serve(self, handle: Callable[[str, list, Destination], None]) -> None:
         """Start serving on a daemon thread, passing each message's address, arguments and sender to `handle`."""
 
-        def deliver(sender: Destination, address: str, *args) -> None:
+        def deliver(sender: Destination, address: str, *args: object) -> None:
             # python-osc replies to the sender with any non-None handler return value.
             handle(address, list(args), sender)
 
@@ -55,8 +63,7 @@ class OscEndpoint:
 def start_feedback(
     endpoint: OscEndpoint,
     subscribers: Subscribers,
-    status: Callable[[], Mapping],
-    log: Callable[[str, str], None],
+    status: Callable[[], Status],
     interval_s: float = FEEDBACK_INTERVAL_S,
 ) -> threading.Event:
     """Every `interval_s`, send each subscriber what's due; returns an event that stops the thread."""
@@ -68,16 +75,20 @@ def start_feedback(
                 continue
             try:
                 batches = subscribers.due(state_messages(status()))
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 # One bad cycle must not end feedback for the rest of the show.
-                log("feedback loop", f"OSC feedback cycle failed: {type(error).__name__}: {error}")
+                log.warning(
+                    "OSC feedback cycle failed: %s: %s", type(error).__name__, error, **rate_limited("feedback loop")
+                )
                 continue
             for destination, messages in batches:
                 try:
                     endpoint.send(destination, messages)
-                except Exception as error:
+                except Exception as error:  # noqa: BLE001
                     # Whatever one destination raises must not stop the others or the thread.
-                    log(f"feedback {destination}", f"OSC feedback to {destination} failed: {error}")
+                    log.warning(
+                        "OSC feedback to %s failed: %s", destination, error, **rate_limited(f"feedback {destination}")
+                    )
 
     threading.Thread(target=run, name="osc-feedback", daemon=True).start()
     return stop

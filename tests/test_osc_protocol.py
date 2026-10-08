@@ -3,23 +3,40 @@ import math
 
 import pytest
 
+from jack.show.control.commands import CommandError, RestCommand, SetMouthMode, SetValue, StartPose
 from jack.show.control.control_board import ControlBoard
 from jack.show.control.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
-from jack.support.rate_limited_log import RateLimitedLog
-from jack.show.control.show_commands import (
-    CommandError, OscContext, Ping, RestCommand, SetMouthMode, SetValue, StartPose, StatusRequest, Subscribe, Unsubscribe,
-    apply, handle_osc, http_command, osc_command,
+from jack.show.control.osc_protocol import (
+    OscContext,
+    Ping,
+    StatusRequest,
+    Subscribe,
+    Unsubscribe,
+    handle_osc,
+    osc_command,
 )
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
+
+SENDER = ("10.10.0.22", 9000)
 
 
 def osc(address, *args):
     return osc_command(address, list(args), PROFILES)
 
 
-def http(path, body=None):
-    return http_command(path, body or {}, PROFILES)
+def board(mode="live"):
+    return ControlBoard(PROFILES, 0.5, mode, FakeClock())
+
+
+def osc_context(board, clock, reply_port=None):
+    sent = []
+    context = OscContext(
+        profiles=PROFILES, board=board, subscribers=Subscribers(clock),
+        send=lambda dest, msgs: sent.append((dest, msgs)),
+        mumble_connected=lambda: True, reply_port=reply_port,
+    )
+    return context, sent
 
 
 def test_osc_routes():
@@ -29,14 +46,6 @@ def test_osc_routes():
     assert osc("/jack/hand/rest") == RestCommand("hand")
     assert osc("/jack/rest") == RestCommand(None)
     assert osc("/jack/mouth/mode", "show") == SetMouthMode("show")
-
-
-def test_http_routes_match_osc():
-    assert http("/hand", {"value": 0.5}) == SetValue("hand", 0.5, 0.5)
-    assert http("/hand/pose", {"name": "curl", "seconds": 2}) == StartPose("hand", "curl", 2.0)
-    assert http("/hand/rest") == RestCommand("hand")
-    assert http("/rest") == RestCommand(None)
-    assert http("/mouth/mode", {"mode": "live"}) == SetMouthMode("live")
 
 
 def test_values_are_clamped_to_the_motors_range():
@@ -70,123 +79,71 @@ def test_bad_osc_is_rejected_with_a_status(address, args, status):
     assert error.value.status == status
 
 
-def test_unexpected_http_fields_are_rejected():
-    with pytest.raises(CommandError) as error:
-        http("/hand", {"value": 0.5, "speed": 2})
-    assert error.value.status == 400 and "speed" in str(error.value)
-
-
-def board(mode="live"):
-    return ControlBoard(PROFILES, 0.5, mode, FakeClock())
-
-
-def test_apply_drives_the_board():
-    b = board()
-    apply(SetValue("hand", 1.0, 1.0), b)
-    assert b.target_volts("hand") == 2.0
-    apply(StartPose("elbow", "up", None), b)
-    assert b.target_volts("elbow") == 2.0
-    apply(RestCommand(None), b)
-    assert b.target_volts("hand") is None
-    apply(SetMouthMode("show"), b)
-    assert b.mouth_mode == "show"
-
-
-@pytest.mark.parametrize("command", [SetValue("mouth", 0.5, 0.5), StartPose("mouth", "open", None)])
-def test_mouth_commands_conflict_with_live_mode(command):
-    b = board("live")
-    with pytest.raises(CommandError) as error:
-        apply(command, b)
-    assert error.value.status == 409
-    assert b.target_volts("mouth") is None
-
-
-def test_mouth_commands_work_in_show_mode():
-    b = board("show")
-    apply(SetValue("mouth", 1.0, 1.0), b)
-    assert b.target_volts("mouth") == -6.0
-
-
-SENDER = ("10.10.0.22", 9000)
-
-
-def osc_context(board, lines, clock, reply_port=None):
-    sent = []
-    context = OscContext(
-        profiles=PROFILES, board=board, subscribers=Subscribers(clock), send=lambda dest, msgs: sent.append((dest, msgs)),
-        mumble_connected=lambda: True, reply_port=reply_port, log=RateLimitedLog(lines.append, 60.0, clock),
-    )
-    return context, sent
-
-
-def test_handle_osc_applies_good_messages_and_logs_bad_ones_rate_limited():
-    b, lines = board(), []
-    context, _ = osc_context(b, lines, FakeClock())
+def test_handle_osc_applies_good_messages_and_logs_bad_ones_rate_limited(journal):
+    b, clock = board(), FakeClock()
+    caplog = journal(clock)
+    context, _ = osc_context(b, clock)
     handle_osc("/jack/hand", [1.0], SENDER, context)
     assert b.target_volts("hand") == 2.0
     handle_osc("/jack/hand", ["oops"], SENDER, context)
     handle_osc("/jack/hand", ["oops"], SENDER, context)
     handle_osc("/jack/mouth", [0.5], SENDER, context)
     handle_osc("/jack/hand", [3.0], SENDER, context)
-    assert len(lines) == 3
-    assert "Ignored OSC /jack/hand" in lines[0]
-    assert "live mode" in lines[1]
-    assert "Clamped OSC /jack/hand 3.0 to 1.0" in lines[2]
+    assert len(caplog.messages) == 3
+    assert "Ignored OSC /jack/hand" in caplog.messages[0]
+    assert "live mode" in caplog.messages[1]
+    assert "Clamped OSC /jack/hand 3.0 to 1.0" in caplog.messages[2]
 
 
-def logging_context():
-    lines = []
-    context, _ = osc_context(board(), lines, FakeClock())
-    return lines, context
+def logging_context(journal):
+    clock = FakeClock()
+    context, _ = osc_context(board(), clock)
+    return journal(clock), context
 
 
-def test_bad_addresses_of_one_kind_share_a_log_line():
-    lines, context = logging_context()
+def test_bad_addresses_of_one_kind_share_a_log_line(journal):
+    caplog, context = logging_context(journal)
     handle_osc("/jack/x1", [1], SENDER, context)
     handle_osc("/jack/x2", [1], SENDER, context)
-    assert len(lines) == 1
+    assert len(caplog.messages) == 1
     handle_osc("/jack/mouth", [0.5], SENDER, context)
-    assert len(lines) == 2
+    assert len(caplog.messages) == 2
 
 
-def test_logged_address_is_truncated():
-    lines, context = logging_context()
+def test_logged_address_is_truncated(journal):
+    caplog, context = logging_context(journal)
     handle_osc("/jack/" + "x" * 494, [1], SENDER, context)
-    assert len(lines[0]) < 600 and "…" in lines[0]
+    assert len(caplog.messages[0]) < 600 and "…" in caplog.messages[0]
 
 
-def test_logged_address_of_a_clamped_value_is_truncated():
-    lines, context = logging_context()
+def test_logged_address_of_a_clamped_value_is_truncated(journal):
+    caplog, context = logging_context(journal)
     address = "/jack" + "/" * 1000 + "hand"  # empty parts are skipped, so this still routes to the hand
     handle_osc(address, [3.0], SENDER, context)
-    assert lines[0].startswith("Clamped OSC") and len(lines[0]) < 600
+    assert caplog.messages[0].startswith("Clamped OSC") and len(caplog.messages[0]) < 600
 
 
 def test_ping_replies_pong_to_the_senders_source_port():
-    lines, clock = [], FakeClock()
-    context, sent = osc_context(board(), lines, clock)
+    context, sent = osc_context(board(), FakeClock())
     handle_osc("/jack/ping", [], SENDER, context)
     assert sent == [(SENDER, [("/jack/pong", [])])]
 
 
 def test_replies_use_the_configured_reply_port_on_the_senders_ip():
-    lines, clock = [], FakeClock()
-    context, sent = osc_context(board(), lines, clock, reply_port=21601)
+    context, sent = osc_context(board(), FakeClock(), reply_port=21601)
     handle_osc("/jack/ping", [], SENDER, context)
     assert sent == [(("10.10.0.22", 21601), [("/jack/pong", [])])]
 
 
 def test_status_replies_with_the_full_state():
-    lines, clock = [], FakeClock()
     b = board()
-    context, sent = osc_context(b, lines, clock)
+    context, sent = osc_context(b, FakeClock())
     handle_osc("/jack/status", [], SENDER, context)
     assert sent == [(SENDER, state_messages(b.status(True)))]
 
 
 def test_subscribe_uses_the_given_port_or_the_reply_port():
-    lines, clock = [], FakeClock()
-    context, _ = osc_context(board(), lines, clock, reply_port=21601)
+    context, _ = osc_context(board(), FakeClock(), reply_port=21601)
     handle_osc("/jack/subscribe", [], SENDER, context)
     handle_osc("/jack/subscribe", [7000], SENDER, context)
     assert {dest for dest, _ in context.subscribers.due(state_messages(board().status(True)))} == {
@@ -195,22 +152,22 @@ def test_subscribe_uses_the_given_port_or_the_reply_port():
     assert len(context.subscribers) == 1
 
 
-def test_a_refused_subscription_is_logged_once_per_minute():
-    lines, clock = [], FakeClock()
-    context, _ = osc_context(board(), lines, clock)
+def test_a_refused_subscription_is_logged_once_per_minute(journal):
+    clock = FakeClock()
+    caplog = journal(clock)
+    context, _ = osc_context(board(), clock)
     for port in range(MAX_SUBSCRIBERS + 3):
         handle_osc("/jack/subscribe", [20000 + port], SENDER, context)
     assert len(context.subscribers) == MAX_SUBSCRIBERS
-    assert len([line for line in lines if "subscription" in line]) == 1
+    assert len([line for line in caplog.messages if "subscription" in line]) == 1
 
 
 @pytest.mark.parametrize("args", [[1023], [70000], ["x"], [True], [1, 2]])
-def test_bad_subscribe_ports_are_ignored_and_logged(args):
-    lines, clock = [], FakeClock()
-    context, _ = osc_context(board(), lines, clock)
+def test_bad_subscribe_ports_are_ignored_and_logged(args, caplog):
+    context, _ = osc_context(board(), FakeClock())
     handle_osc("/jack/subscribe", args, SENDER, context)
     assert len(context.subscribers) == 0
-    assert lines and "Ignored OSC /jack/subscribe" in lines[0]
+    assert caplog.messages and "Ignored OSC /jack/subscribe" in caplog.messages[0]
 
 
 @pytest.mark.parametrize("address", ["/jack/ping", "/jack/status"])
@@ -220,40 +177,23 @@ def test_extra_arguments_to_ping_and_status_are_rejected(address):
     assert error.value.status == 400
 
 
-@pytest.mark.parametrize("path", ["/ping", "/status", "/subscribe", "/unsubscribe"])
-def test_osc_only_routes_are_not_http_commands(path):
-    with pytest.raises(CommandError) as error:
-        http_command(path, {}, PROFILES)
-    assert error.value.status == 404
-
-
 @pytest.mark.parametrize("address", ["/jack/ping", "/jack/status"])
-def test_a_failed_reply_is_logged_with_its_destination_not_raised(address):
-    lines, clock = [], FakeClock()
-
+def test_a_failed_reply_is_logged_with_its_destination_not_raised(address, caplog):
     def failing_send(dest, msgs):
         raise OSError("network unreachable")
 
-    context, _ = osc_context(board(), lines, clock)
+    context, _ = osc_context(board(), FakeClock())
     context = dataclasses.replace(context, send=failing_send)
     handle_osc(address, [], SENDER, context)
-    assert len(lines) == 1
-    assert f"OSC reply to {SENDER} failed: network unreachable" in lines[0]
+    assert caplog.messages == [f"OSC reply to {SENDER} failed: network unreachable"]
 
 
 def test_unsubscribe_without_a_port_removes_a_subscription_made_without_one():
-    lines, clock = [], FakeClock()
-    context, _ = osc_context(board(), lines, clock)
+    context, _ = osc_context(board(), FakeClock())
     handle_osc("/jack/subscribe", [], SENDER, context)
     assert len(context.subscribers) == 1
     handle_osc("/jack/unsubscribe", [], SENDER, context)
     assert len(context.subscribers) == 0
-
-
-def test_integer_too_large_for_a_float_is_a_400():
-    with pytest.raises(CommandError) as error:
-        http_command("/hand", {"value": 10**400}, PROFILES)
-    assert error.value.status == 400
 
 
 @pytest.mark.parametrize("args", [[21601.0], [21601]])
@@ -276,12 +216,11 @@ def test_the_lowest_and_highest_ports_are_accepted():
 
 @pytest.mark.parametrize("address", ["/jack/subscribe", "/jack/unsubscribe"])
 @pytest.mark.parametrize("release", [[0], [0.0], [False]])
-def test_subscribe_button_releases_are_ignored_silently(address, release):
-    lines, clock = [], FakeClock()
-    context, sent = osc_context(board(), lines, clock)
+def test_subscribe_button_releases_are_ignored_silently(address, release, caplog):
+    context, sent = osc_context(board(), FakeClock())
     assert osc_command(address, release, PROFILES) is None
     handle_osc(address, release, SENDER, context)
-    assert len(context.subscribers) == 0 and lines == [] and sent == []
+    assert len(context.subscribers) == 0 and caplog.messages == [] and sent == []
 
 
 @pytest.mark.parametrize("address, args", [
@@ -296,7 +235,7 @@ def test_non_finite_button_values_are_400(address, args):
 
 
 def subscribed_context(clock):
-    context, _ = osc_context(board(), [], clock)
+    context, _ = osc_context(board(), clock)
     handle_osc("/jack/subscribe", [21601], SENDER, context)
     return context
 
@@ -355,13 +294,17 @@ def test_button_presses_act(address, command, press):
     assert osc_command(address, press, PROFILES) == command
 
 
-@pytest.mark.parametrize("address", ["/jack/rest", "/jack/hand/rest", "/jack/ping", "/jack/status", "/jack/elbow/pose/up"])
+@pytest.mark.parametrize(
+    "address", ["/jack/rest", "/jack/hand/rest", "/jack/ping", "/jack/status", "/jack/elbow/pose/up"]
+)
 @pytest.mark.parametrize("release", [[0], [0.0], [False]])
 def test_button_releases_are_ignored(address, release):
     assert osc_command(address, release, PROFILES) is None
 
 
-@pytest.mark.parametrize("address, args", [("/jack/rest", ["go"]), ("/jack/rest", [1, 1]), ("/jack/elbow/pose/up", ["x"])])
+@pytest.mark.parametrize(
+    "address, args", [("/jack/rest", ["go"]), ("/jack/rest", [1, 1]), ("/jack/elbow/pose/up", ["x"])]
+)
 def test_bad_button_arguments_are_400(address, args):
     with pytest.raises(CommandError) as error:
         osc_command(address, args, PROFILES)
@@ -375,7 +318,9 @@ def test_unknown_pose_address_is_404():
 
 
 @pytest.mark.parametrize("address", ["/jack/mouth/mode", "/jack/mouth/mode/show"])
-@pytest.mark.parametrize("value, mode", [(1, "show"), (1.0, "show"), (True, "show"), (0, "live"), (0.0, "live"), (False, "live")])
+@pytest.mark.parametrize(
+    "value, mode", [(1, "show"), (1.0, "show"), (True, "show"), (0, "live"), (0.0, "live"), (False, "live")]
+)
 def test_numeric_mouth_mode(address, value, mode):
     assert osc_command(address, [value], PROFILES) == SetMouthMode(mode)
 
@@ -386,20 +331,13 @@ def test_string_mouth_mode_still_works_and_show_address_needs_a_number():
         osc_command("/jack/mouth/mode/show", ["show"], PROFILES)
 
 
-def test_per_pose_address_is_osc_only():
-    with pytest.raises(CommandError) as error:
-        http_command("/elbow/pose/up", {}, PROFILES)
-    assert error.value.status == 404
-
-
-def test_a_momentary_rest_button_rests_once_and_logs_nothing():
-    lines, clock = [], FakeClock()
+def test_a_momentary_rest_button_rests_once_and_logs_nothing(caplog):
     b = board()
     b.set_value("hand", 1.0)
-    context, sent = osc_context(b, lines, clock)
+    context, sent = osc_context(b, FakeClock())
     handle_osc("/jack/rest", [1.0], SENDER, context)
     assert b.target_volts("hand") is None
     b.set_value("hand", 1.0)
     handle_osc("/jack/rest", [0.0], SENDER, context)
     assert b.target_volts("hand") == 2.0
-    assert lines == [] and sent == []
+    assert caplog.messages == [] and sent == []

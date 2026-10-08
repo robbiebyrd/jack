@@ -61,17 +61,13 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
   1.5.735-5+deb13u1, `python3-alsaaudio` 0.10.0, `python3-opuslib` 3.0.1,
   `python3-protobuf` 3.21.12. `pymumble` is not packaged.
 
-## Smoke test behavior (`main.py`)
+## Mouth calibration history
 
-Purpose: find which voltages move the animatronic head's mouth (driven by
-motor A) and how. The talk loop (see "Talking") replaces this demo in
-`main.py`; the calibration table below stays the basis for its settings. The
-numbered behaviour below is that retired demo, kept for `speaking_cycle` and
-`demo_cycle`, which `main.py` still defines.
+Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28), on channel B, before the
+mouth moved to channel A (2026-10-02). Since the move its signs are reversed: positive opens
+and negative closes. The current values live in `poses.toml` ("Poses and per-motor settings").
 
-Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
-
-| Pose | How to reach it | Held without power? |
+| Pose | How to reach it (2026-09-28 signs) | Held without power? |
 |---|---|---|
 | Closed | +1 V for 0.25 s closes it from any pose; +0.5 V is enough from relaxed open | yes |
 | Relaxed open | apply −2 V, then release: the mouth settles here | yes |
@@ -80,35 +76,10 @@ Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
 Holding a voltage keeps the motor running against resistance (stalled), so
 prefer the closed and relaxed-open poses and keep fully open short.
 
-Since the mouth moved to channel A (2026-10-02) its signs are reversed:
-positive opens and negative closes (see "Poses and per-motor settings").
-The retired demo's segments (`jack/show/motion/mouth.py`, `jack/show/motion/speech.py`)
-still use the old signs.
-
-1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
-   its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
-   terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
-2. **Motor A (the mouth)** imitates speaking until control inputs (audio,
-   DMX, websockets) are wired in. Each cycle plays a fresh random phrase from
-   `jack/show/motion/speech.py`, at most 4.5 s long:
-   - 1–4 words of 1–3 syllables; 0.05–0.15 s between syllables, 0.1–0.3 s
-     between words, and a 0.5–1.5 s pause after the phrase.
-   - A syllable opens part way with −2 V for 0.15–0.4 s, then closes with
-     +0.5 V for 0.15 s (the gentle close that works from relaxed open).
-   - About 1 in 8 syllables is emphasised: a ramped full open (hold
-     0.15–0.3 s), then +1 V for 0.25 s.
-   - Every phrase ends closed. Durations are whole 50 ms steps.
-   `MOUTH_DEMO` (close, rest 1.5 s, relax, rest 1.5 s, ramped full open for
-   0.5 s; 4.5 s) remains available through `main.demo_cycle()` for checking
-   the mechanism.
-3. **Motor B** held 0 V for the whole cycle. Now motor B is the hand: it
-   follows show control and rests when uncommanded (the demo functions
-   still keep it at 0 V).
-4. Repeat the cycle back-to-back, with no pause, until the process is
-   stopped.
-5. On SIGTERM or any exception, **short-brake** every motor before exiting:
-   duty 0, then IN1 = IN2 = high (the TB6612FNG shorts the motor leads).
-   A failure braking one motor must not prevent braking the other.
+The demo that played these poses before the talk loop existed (`MOUTH_DEMO`, `speaking_cycle`
+and `demo_cycle` in `main.py`, `speech.py`, `smoke_test.py`, the triangle and square profiles in
+`ramp.py`) was retired on 2026-10-08. Tag `pre-show-control-demo` holds the last commit with it
+working; `docs/archive/retired-demo/` keeps the modules as a record.
 
 ## Calibration tool (`calibrate.py`)
 
@@ -138,8 +109,8 @@ without a commit per try (see also "Calibration for every motor"):
   Ctrl-C, and I2C errors.
 - Code: `jack/application/calibration.py` (`parse_command`, `run_calibration`,
   talking to motors only through `MotorOutput`) and `calibrate.py`
-  (composition root reusing `main.py`'s hardware constants and
-  `POSES_PATHS`).
+  (composition root; the Pi's fixed facts, `POSES_PATHS` among them, come from
+  `jack/adapters/system/deployment.py`).
 
 ## Talking
 
@@ -245,7 +216,10 @@ Redesigned with Boss, 2026-10-04: in live mode the audio's amplitude sets
 the mouth's voltage directly, as on the Talking Skull board, instead of a
 gate-and-curve state machine (which, with the stall budget and a large
 gain, left the mouth moving only sporadically). A pure, tick-based
-controller: smoothed level in, signed volts for motor A out.
+target: smoothed level in, the volts the voice asks of the mouth out (or
+rest, below `min_v`). The mouth's `MotorDriver`, the same one show mode
+drives it through, applies the slew limit, the closing pull and the stall
+budget to that target (see "Command board").
 
 - **Amplitude:** the smoothed level (RMS dBFS through the attack/release
   envelope) as a fraction of full scale: `a = 10 ^ (level_db / 20)`.
@@ -269,7 +243,8 @@ controller: smoothed level in, signed volts for motor A out.
   same one show control uses (see "Command board"): `TICK_S / hold(volts)`
   from the mouth's `holds` in `poses.toml`. When an opening spends it, the
   mouth plays the closing pull and stays closed until the target drops
-  below `min_v` (a quiet moment). Every close refills it.
+  below `min_v` (a quiet moment). The pull spends it too; a tick at rest
+  refills it.
 - **Gain check:** a gain at which silence (−90 dBFS) would reach `min_v`
   stops the app at startup with a one-line message, since silence would
   then hold the mouth open.
@@ -515,10 +490,12 @@ holds the latest command — a **value** (with arrival time) or a **pose**
 - Max hold: a stall budget. Each driven tick at the volts actually applied
   (after slew) uses `TICK_S / hold(volts)` of it; when the budget is spent
   the motor is forced to rest until a rest command arrives or commands
-  stop. Any rest refills the budget at once. Rest-pulse ticks use none (the
-  pulse is checked against the holds at load). `jack/show/motion/stall_budget.py`
-  holds the budget; lip sync spends the mouth's the same way (see "Mouth
-  control"). So 0.25 s at 6 V and 1 s at
+  stop. Rest-pulse ticks spend it too (the pulse is checked against the
+  holds at load), and only a tick at rest refills it, so a command
+  flickering on and off can't stack pulses past the holds; a spent budget
+  rests one tick before its pulse. `jack/show/motion/stall_budget.py` holds
+  the budget, owned by the motor's `MotorDriver`, which lip sync drives the
+  mouth through as well (see "Mouth control"). So 0.25 s at 6 V and 1 s at
   2 V on the mouth (half of 0.5 s, half of 2 s) together spend it.
 - The slew limit applies only to driving harder (a growing magnitude, or a
   reversal of direction). Easing off is immediate, and so are going to rest
@@ -546,11 +523,12 @@ on the hardware).
 - Switched at runtime by OSC `/jack/mouth/mode live|show` or
   `POST /mouth/mode`. The startup mode comes from `JACK_MOUTH_MODE` in
   `jack.env` (`live` or `show`); a restart returns to it (not persisted).
-- A switch never jumps the mouth: to `show`, the mouth's driver takes over
-  from the volts lip sync left it at, so it slews from there or, with no
-  command, plays the rest pulse before braking; to `live`, lip sync starts
-  fresh (closed) and opens with its own slew. A real switch drops any mouth
-  command, so a stale show command can't resume after a later switch back.
+- A switch never jumps the mouth: one `MotorDriver` drives the mouth in
+  both modes, so after a switch it carries on from the volts and stall
+  budget it has. To `show` with no command it plays the rest pulse before
+  braking; to `live`, lip sync's target takes over from wherever show left
+  the mouth. A real switch drops any mouth command, so a stale show command
+  can't resume after a later switch back.
 
 ### OSC (UDP, default port 9000, `JACK_OSC_PORT`)
 
@@ -565,7 +543,7 @@ on the hardware).
 Out-of-range values are clamped (logged); unknown motors, poses or
 addresses, and mouth commands in `live` mode, are ignored and logged; all
 these log lines are rate-limited to one per kind per minute
-(`jack/support/rate_limited_log.py`). No
+(the `RateLimit` logging filter in `jack/support/rate_limit.py`). No
 authentication: anyone on the LAN may send commands (Boss, 2026-10-02).
 Library: `python-osc` (pip, pinned in `requirements-pi.txt` and
 `requirements-dev.txt`; no dependencies of its own, Python ≥ 3.10; not
@@ -599,7 +577,7 @@ Jack answers and reports state over OSC, as well as taking commands.
 - **Structure:**
   - `jack/show/control/osc_feedback.py` (pure, injected clock) turns a ControlBoard status into state messages, detects changes per subscriber, and keeps the subscriber list (expiry, cap).
   - A daemon "osc-feedback" thread in `jack/adapters/network/osc_server.py` reads the board every 20 ms and sends. The talk loop never does network I/O, so a slow network can't stall the motors.
-  - The ping, status, subscribe and unsubscribe routes are parsed in `show_commands.py` like every other command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
+  - The ping, status, subscribe and unsubscribe routes are parsed in `osc_protocol.py` with the same care as every command (validation, 400/404). Replies leave through the OSC server's own socket, from port 9000.
 - **Not provided:** OSC over TCP, authentication, protection against a LAN host subscribing on another host's behalf or filling the 8 slots (follows from no authentication; bounded by the cap and the 60 s lease), and feedback over HTTP (HTTP has `/status`).
 
 ### TouchOSC support (Boss uses TouchOSC; designed 2026-10-02)
@@ -648,10 +626,15 @@ Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
 - On macOS 15+, the browser may need Local Network permission to reach
   `http://10.10.0.54:8080`, as the Mumble client did.
 
-Both protocols go through one pure translation module,
-`jack/show/control/show_commands.py`, which turns an OSC address + arguments or an
-HTTP path + JSON body into board commands; all validation and clamping
-live there, so OSC and HTTP behave identically.
+Both protocols go through one pure set of routes,
+`jack/show/control/routes.py`, which turns a route (an OSC address below
+`/jack`, or an HTTP path) and its named parameters (OSC arguments by
+position, an HTTP JSON body by name) into the commands in
+`jack/show/control/commands.py`; all validation and clamping live there, so
+OSC and HTTP behave identically. `jack/show/control/osc_protocol.py` adds
+what only OSC has: the queries, TouchOSC's button and port forms, and the
+rate-limited log of ignored messages. `/status` and the OSC feedback both
+read one `Status` snapshot (`jack/show/control/status.py`) from the board.
 
 ### Calibration for every motor
 
@@ -715,15 +698,15 @@ hexagonal layer, then by function:
 jack/
   show/                 pure logic: no hardware, network, sound card or systemd
     audio/      pcm, envelope, frame_queue, lip_sync, talk_settings
-    motion/     motors, poses, motor_driver, stall_budget, ramp, mouth, speech
-    control/    control_board, show_commands, osc_feedback
-  application/  ports, talk_loop, calibration, smoke_test
+    motion/     motors, poses, motor_driver, stall_budget, ramp, segments
+    control/    control_board, status, commands, routes, osc_protocol, osc_feedback
+  application/  ports, config, talk_loop, calibration
   adapters/
-    hardware/   pca9685, tb6612_motor
+    hardware/   pca9685, tb6612_motor, motor_hats
     audio/      alsa_sink, mumble_voice, wav_source
     network/    osc_server, http_server, control_page.html
-    system/     systemd_notify, service_guard
-  support/      attempt_all, rate_limited_log
+    system/     systemd_notify, service_guard, deployment, logging_setup
+  support/      attempt_all, rate_limit, clip
 ```
 
 - `show/` is Jack's show itself: what the motors, voice and controls mean,
@@ -750,36 +733,39 @@ jack/
   keep their `motor_test` paths as a record of what was built then.
 
 Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
-`control_board.py`, `show_commands.py`, `osc_server.py`, `http_server.py`,
-`control_page.html`) are described in "Show control". Two more modules
-support them:
+`control_board.py`, `status.py`, `commands.py`, `routes.py`,
+`osc_protocol.py`, `osc_server.py`, `http_server.py`, `control_page.html`)
+are described in "Show control". Two more modules support them:
 
 - `jack/show/motion/motor_driver.py` (domain, pure): `MotorDriver`, one per
   motor, turns the commanded volts (or None for rest) into its drive each
   20 ms tick: slew limit on driving harder, max-hold trip, rest pulse, then
-  `Rest("brake")` or `Rest("coast")`.
-- `jack/support/rate_limited_log.py`: `RateLimitedLog(print, interval_s,
-  clock)`, a callable that lets one line per key through per interval, so a
-  flood of bad OSC messages stays one journal line per kind per minute.
+  `Rest("brake")` or `Rest("coast")`. The mouth's takes lip sync's target
+  in live mode and the board's in show mode, so its state is the motor's.
+- `jack/support/rate_limit.py`: `RateLimit(interval_s, clock)`, a `logging`
+  filter that lets one record per kind through per interval; a log call
+  names its kind with `**rate_limited(key)`. So a flood of bad OSC messages,
+  or roc-recv restarting, stays one journal line per kind per minute.
+- `jack/adapters/system/logging_setup.py`: `configure_logging()`, called by
+  `main.py` and the tools: every logger's INFO and above to stdout as
+  `LEVEL logger: message` (journald adds the time), through `RateLimit`.
+  Modules log through `logging.getLogger(__name__)`; nothing takes a log
+  callable.
+- `jack/support/clip.py`: `clip(value)` shortens text from the network to
+  200 characters before it is logged.
 
 - `jack/show/motion/ramp.py` (domain, pure): waveforms as signed 12-bit duty
-  counts (negative = backward). `ramp_profile(peak_volts, supply_volts,
-  steps)` is one cycle of a 0 → peak → 0 triangle that starts at 0, peaks
-  at `steps // 2`, and omits the closing 0 so cycles chain seamlessly.
-  `square_profile(high_volts, low_volts, supply_volts, steps)` holds
-  `high_volts` for the first half and `low_volts` for the second.
-  `constant_profile(volts, supply_volts, steps)` holds `volts` throughout.
-  `segment_profile(segments, supply_volts, step_s)` plays each
-  `(start_volts, end_volts, seconds)` segment in order: a hold when start
-  equals end, otherwise a linear ramp that reaches `end_volts` on its last
-  step. It rejects durations that are not a whole number of steps. All raise `ValueError` for a non-positive supply, a voltage outside the
-  supply range, or an odd or too-small step count. Magnitudes cap at 4095
-  (4096 would set the PCA9685 full-off bit).
-- `jack/show/motion/mouth.py` (domain, pure): the calibrated mouth poses as
-  `(start_volts, end_volts, seconds)` segments built with `hold()` and
-  `ramp()`: `CLOSE`, `RELAX`, `open_fully(seconds)` (ramps over
-  `OPEN_RAMP_S` = 0.25 s, then holds) and `rest(seconds)`, plus
-  `describe()` for log lines.
+  counts (negative = backward). `segment_profile(segments, supply_volts,
+  step_s)` plays each `(start_volts, end_volts, seconds)` segment in order: a
+  hold when start equals end, otherwise a linear ramp that reaches
+  `end_volts` on its last step. It raises `ValueError` for a non-positive
+  supply, a voltage outside the supply range, or a duration that is not a
+  whole number of steps. `volts_to_count` caps magnitudes at 4095 (4096
+  would set the PCA9685 full-off bit); `whole_steps` counts the steps in a
+  duration.
+- `jack/show/motion/segments.py` (domain, pure): the `(start_volts,
+  end_volts, seconds)` `Segment` the calibration tool plays, built with
+  `hold()` and `ramp()`, `STEP_S` (50 ms), and `describe()` for log lines.
 - `jack/application/ports.py`: the `MotorOutput` protocol, with
   `drive(count)` (signed) and `stop()`.
 - `jack/adapters/hardware/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
@@ -803,17 +789,6 @@ support them:
 - `jack/support/attempt_all.py`: `attempt_all(actions)` runs every action
   even if an earlier one raises, then re-raises the first failure. Used
   wherever braking must not be skipped.
-- `jack/show/motion/speech.py` (domain): `random_phrase(rng)` builds one
-  talking phrase from the calibrated poses (see "Smoke test behavior");
-  pass a seeded `random.Random` for repeatable output.
-- `jack/application/smoke_test.py` (application): `run_generated_loop(motors,
-  next_cycle, step_s, sleep, on_cycle)` asks `next_cycle()` for one count
-  list per motor each cycle and plays them in lockstep: step i drives
-  every motor with its i-th count, then waits `step_s`. It repeats forever,
-  calls `on_cycle()` after each completed cycle, and always stops every
-  motor when the loop exits (exception, unplayable cycle or SIGTERM), even
-  if stopping one fails. `run_profiles_loop(profiles, ...)` is the
-  fixed-profile form, checked before any motor is touched.
 - `jack/adapters/system/systemd_notify.py` (adapter): `notify(message)` sends one
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
@@ -824,8 +799,9 @@ support them:
   attack/release smoother.
 - `jack/show/audio/talk_settings.py` (domain, pure): `TalkSettings`, every
   tunable in the table above with its starting value, validated.
-- `jack/show/audio/lip_sync.py` (domain, pure): the mouth controller; level
-  in, signed volts (amplitude × gain, see "Mouth control") out, one call per tick.
+- `jack/show/audio/lip_sync.py` (domain, pure): `LipSync.target(level_db)`,
+  the volts the voice asks of the mouth (amplitude × gain, see "Mouth
+  control"), or None for rest; the mouth's `MotorDriver` does the rest.
 - `jack/show/audio/frame_queue.py` (domain): `FrameQueue`, a thread-safe,
   bounded queue that cuts arbitrary PCM chunks into frames and drops the
   oldest past its limit.
@@ -852,48 +828,42 @@ support them:
   `until` check; always brakes every motor and closes the sink on exit.
 - `lipsync_wav.py`: composition root for the tuning tool (a `WavSource`
   in place of Mumble).
-- `main.py`: builds the `TalkSettings` with `talk_settings()` (defaults plus
-  `JACK_<FIELD>` overrides from the environment, checked against the supply
-  before touching hardware; the mouth's old volt variables are refused),
-  loads every motor's profile from `poses.toml` with `motor_profiles()`
-  (`POSES_PATHS`: the repo file, then `/etc/jack/poses.toml`), and reads the
-  ports, dead-man timeout and startup mouth mode with
-  `show_control_config()` (`JACK_OSC_PORT`, `JACK_HTTP_PORT`,
-  `JACK_CONTROL_TIMEOUT_S`, `JACK_MOUTH_MODE`). Before all of that it installs a SIGTERM
-  handler that raises `SystemExit` so the loop's cleanup runs. Once the
-  settings, profiles and show-control config are validated it builds the
-  `ControlBoard`, connects the Mumble bot, then builds both HATs and all four
-  motors with `build_motors` (each HAT's motors braked as soon as it is up; a
-  HAT that does not answer stops the app naming its address), opens the
-  ALSA sink, starts the OSC (UDP) and HTTP (TCP) servers on `0.0.0.0`, sends
-  `READY=1`, and runs the talk loop with `on_second`
-  the Mumble-aware watchdog callback (`WATCHDOG=1` while the bot's thread
-  lives, `SystemExit` once it has died). `run_profiles_loop` and
-  `MOUTH_DEMO` are no longer used by `main.py`; they stay in the repo
-  (Boss, 2026-09-28).
-- `speaking_cycle(rng)` and `demo_cycle()` remain in `main.py` (Boss, 2026-09-28) for showing the mechanism without audio; `main()` no longer uses them.
+- `jack/application/config.py` (application, pure): every setting the app
+  reads before it touches hardware, from a mapping of environment variables
+  (`os.environ` in the app, a dict in tests) and the poses files.
+  `load_app_config(environ, poses_paths, supply_volts)` returns an
+  `AppConfig`: the `TalkSettings` (defaults plus `JACK_<FIELD>` overrides,
+  with the mouth's old volt variables and the replaced lip-sync variables
+  refused), every motor's `MotorProfile`, the mouth gain checked against the
+  mouth's volts, the `ShowControlConfig` (`JACK_OSC_PORT`, `JACK_HTTP_PORT`,
+  `JACK_CONTROL_TIMEOUT_S`, `JACK_MOUTH_MODE`, `JACK_OSC_REPLY_PORT`), the
+  `RocConfig` (`JACK_ROC_*`) and the Mumble password. Any problem raises
+  `ConfigError` (a `ValueError`) whose message names the variable, the file
+  and the fix; `main.py` turns it into a one-line exit.
+- `jack/adapters/system/deployment.py`: the Pi's fixed facts that `main.py`
+  and the hand-run tools share: the I2C bus, PWM frequency, ALSA device,
+  Mumble server address and `POSES_PATHS` (the repo file, then
+  `/etc/jack/poses.toml`). The 12 V supply is `SUPPLY_VOLTS` in
+  `jack/show/motion/motors.py`, beside the HAT addresses.
+- `jack/adapters/hardware/motor_hats.py`: `build_motors(bus, pwm_freq_hz)`
+  builds both HATs and all four motors from `MOTORS`, braking each HAT's
+  motors as soon as it is up; a HAT that does not answer raises `OSError`
+  naming its address.
+- `main.py` is the composition root. It installs a SIGTERM handler that
+  raises `SystemExit` so the loop's cleanup runs, loads the `AppConfig`,
+  builds the `ControlBoard`, connects the Mumble bot, starts `roc-recv`,
+  builds the motors, opens the ALSA sink, starts the OSC (UDP) and HTTP
+  (TCP) servers on `0.0.0.0`, logs one startup line, sends `READY=1`, and
+  runs the talk loop with `on_second` the Mumble-aware watchdog callback
+  (`WATCHDOG=1` while the bot's thread lives, one log line once it has died).
 
 ## Testing
 
 - pytest, run on the dev Mac (no hardware needed) for the domain and
   application layers:
-  - Ramp starts at 0, peaks at 2048 for 6 V/12 V at index `steps // 2`,
-    is symmetric, and has the requested number of steps. A full-supply
-    peak caps at 4095. Square is +1024 for the first half and −1024 for
-    the second for ±3 V/12 V, and caps at ±4095. Constant −6 V/12 V is
-    −2048 at every step. The −6/−3/0 V holds at 50 ms steps are 10, 20
-    and 40 steps, and a 0 → −6 V ramp over 0.25 s is −410, −819, −1229,
-    −1638, −2048.
-  - Invalid inputs raise `ValueError`.
-  - `run_profiles_loop` drives each motor with its own profile in
-    lockstep, repeats the cycle, stops every motor when interrupted
-    (even if one stop fails), and rejects empty or mismatched profiles
-    (the test's `sleep` raises after N steps to end the loop). This uses a
-    recording fake `MotorOutput`, which checks our sequencing, not a
-    mock's behavior.
-  - `run_profiles_loop` calls `on_cycle` exactly once per completed cycle.
-  - `run_generated_loop` plays fresh counts each cycle, pings after each,
-    and brakes every motor on an unplayable cycle.
+  - `segment_profile`: the −6/−3/0 V holds at 50 ms steps are 10, 20 and
+    40 steps, and a 0 → −6 V ramp over 0.25 s is −410, −819, −1229, −1638,
+    −2048. A full-supply count caps at 4095. Invalid inputs raise `ValueError`.
   - `notify` delivers the exact message to a real Unix datagram socket,
     does nothing without `NOTIFY_SOCKET`, and maps `@name` to an abstract
     address.
@@ -907,17 +877,6 @@ support them:
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.demo_cycle` holds motor B at 0 V (the retired demo; in the app
-    motor B is the hand, driven by show control) and plays the mouth demo
-    (+341 ×5, 0 ×30, −683 ×10, 0 ×30, the 5-step ramp, −2048 ×10) over a
-    4.5 s cycle, inside the 10 s watchdog with two cycles to spare.
-  - `main.speaking_cycle` plays `random_phrase` on the mouth with motor B
-    at 0 V, and consecutive cycles differ.
-  - `random_phrase`, over 200 seeds: fits in 4.5 s, whole 50 ms steps,
-    voltages within −6…+1 V, every opening ended by a close, ends closed
-    then pauses, repeatable per seed, varied across seeds, and emphasis
-    stays occasional.
-  - The mouth poses match the calibration table.
   - Envelope: digital silence reads −90 dBFS, a full-scale sine reads
     about −3.01 dBFS, and a step input rises with `ATTACK_S` and falls
     with `RELEASE_S`.
@@ -926,7 +885,8 @@ support them:
     shifting the mapping; below `min_v` the closing pull then a brake; a
     sound interrupting the pull; the opening slew limit; the stall budget
     closing a long opening, holding it closed until a quiet moment, and
-    refilling at every close; the gain check; replaced settings refused.
+    refilling at rest; the gain check; replaced settings refused. The
+    target is tested alone and through the mouth's `MotorDriver`.
   - `FrameQueue` cuts chunks of any length into whole frames, keeps a
     partial frame for the next chunk, drops the oldest frames past its
     limit and reports how many, and stays consistent under concurrent puts.
@@ -938,8 +898,10 @@ support them:
     motors braked on an exception.
   - `jack.service` runs the venv's Python and loads `/etc/jack/jack.env`;
     `jack-update.sh` re-runs pip only when `requirements-pi.txt` changed.
-- Dependencies for tests: `requirements-dev.txt` pins `pytest==9.1.1`,
-  `smbus2==0.4.3` and `python-osc==1.10.2`.
+- Dependencies for tests: `requirements-dev.txt` pins `pytest`, `ruff`,
+  `smbus2`, `python-osc` and `py2tosc`. `ruff check .` (configured in
+  `pyproject.toml`) and the tests run on every push in GitHub Actions
+  (`.github/workflows/ci.yml`), on Python 3.11 and 3.13.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.
@@ -993,7 +955,8 @@ and are not tied to any login session or human user.
   trigger (normally `mmc0` and `default-on`), also when cut short. A
   flash failure is logged but does not fail the deploy. `JACK_LEDS_DIR`
   (default `/sys/class/leds`) lets tests use a fake LED directory.
-- **Logs:** `journalctl -u jack -u jack-update`.
+- **Logs:** `journalctl -u jack -u jack-update`. Each of Jack's lines is
+  `LEVEL jack.<module>: message`, e.g. `WARNING jack.adapters.audio.alsa_sink: Audio underrun #1; carrying on`.
 - **Accepted risk:** `jack-update.service` runs
   `/opt/jack/deploy/jack-update.sh` as root, and that script is replaced
   from the repo on every deploy, so anyone who can push to `main` can run

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+# Both HATs share the 12 V motor supply (SPEC.md "Hardware facts"); every voltage is checked against it.
+SUPPLY_VOLTS = 12.0
 HAT1_ADDRESS = 0x40
 # The second HAT's bridged pad behaves as A0, so it answers at 0x41 (SPEC.md "Hardware facts").
 HAT2_ADDRESS = 0x41
@@ -12,7 +14,7 @@ class MotorSpec:
     name: str
     address: int
     channel: str
-    # True when commands run −1…1 (pivot: left…right; hand: open…curled) instead of 0…1.
+    # True when commands run -1…1 (pivot: left…right; hand: open…curled) instead of 0…1.
     two_sided: bool
 
 

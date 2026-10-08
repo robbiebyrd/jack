@@ -4,8 +4,8 @@ import py2tosc
 from py2tosc.enums import Conversion, PartialType, TriggerCondition
 
 from jack.show.motion.motors import motor_spec
-from tools.touchosc_layout import build_layout
 from tests.profiles import PROFILES
+from tools.touchosc_layout import build_layout
 
 PORT = 21601
 
@@ -66,7 +66,7 @@ def test_buttons_fire_on_press_only():
     button_addresses = [a for a, m, c in bindings(doc) if m.send and c.control_type.value == "BUTTON"
                         and a != "/jack/mouth/mode/show"]
     assert button_addresses
-    for addr, message, control in bindings(doc):
+    for addr, message, _control in bindings(doc):
         if addr in button_addresses and message.send:
             assert [t.condition for t in message.triggers] == [TriggerCondition.RISE], addr
 
@@ -92,7 +92,7 @@ def test_the_saved_file_loads_back(tmp_path):
 
 
 def test_the_repo_layout_file_is_up_to_date():
-    from main import POSES_PATHS
+    from jack.adapters.system.deployment import POSES_PATHS
     from jack.show.motion.poses import load_profiles
 
     repo_file = Path(__file__).resolve().parent.parent / "touchosc" / "jack.tosc"

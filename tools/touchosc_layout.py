@@ -8,7 +8,7 @@ port --port, then press Subscribe. See "TouchOSC support" in SPEC.md and the REA
 """
 
 import argparse
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import py2tosc
@@ -23,7 +23,9 @@ DEFAULT_OUT = Path(__file__).resolve().parent.parent / "touchosc" / "jack.tosc"
 # A landscape tablet-sized canvas; TouchOSC scales it to the window.
 FRAME = (0, 0, 1024, 768)
 
-GREY = (0.25, 0.25, 0.25, 1.0)
+Colour = tuple[float, float, float, float]
+
+GREY: Colour = (0.25, 0.25, 0.25, 1.0)
 RED = (0.85, 0.2, 0.2, 1.0)
 GREEN = (0.2, 0.75, 0.3, 1.0)
 BLUE = (0.2, 0.45, 0.85, 1.0)
@@ -33,7 +35,9 @@ MOTOR_COLOURS = {"mouth": (0.85, 0.55, 0.2, 1.0), "hand": BLUE, "pivot": (0.6, 0
 def build_layout(profiles: Mapping[str, MotorProfile], receive_port: int) -> py2tosc.Document:
     """The whole dashboard: a header row of global controls over one column per motor."""
     header = ui.row(
-        _press_button("Subscribe", "/jack/subscribe", GREEN, args=[ui.const(str(receive_port), conversion=Conversion.INTEGER)]),
+        _press_button(
+            "Subscribe", "/jack/subscribe", GREEN, args=[ui.const(str(receive_port), conversion=Conversion.INTEGER)]
+        ),
         _press_button("Ping", "/jack/ping", GREY),
         _indicator("Mumble", "/jack/mumble", GREEN),
         _mouth_mode_toggle(),
@@ -86,7 +90,9 @@ def _spacer(name: str) -> py2tosc.Control:
     return py2tosc.box(name=name, background=False, outline=False)
 
 
-def _press_button(caption: str, address: str, colour, *, args=None, name: str | None = None) -> py2tosc.Control:
+def _press_button(
+    caption: str, address: str, colour: Colour, *, args: Sequence[object] | None = None, name: str | None = None
+) -> py2tosc.Control:
     """A momentary button that sends once, on press (its release would be ignored by Jack anyway)."""
     button = py2tosc.button(
         name=name or _slug(address),
@@ -107,7 +113,7 @@ def _mouth_mode_toggle() -> py2tosc.Control:
     return ui.labelled(toggle, "Mouth: show control", size=16)
 
 
-def _indicator(caption: str, address: str, colour, *, name: str | None = None) -> py2tosc.Control:
+def _indicator(caption: str, address: str, colour: Colour, *, name: str | None = None) -> py2tosc.Control:
     """A non-interactive light driven by a 0/1 feedback message."""
     light = py2tosc.button(
         name=name or _slug(address),
@@ -142,11 +148,14 @@ def _slug(text: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from main import POSES_PATHS, SUPPLY_VOLTS
+    from jack.adapters.system.deployment import POSES_PATHS
+    from jack.show.motion.motors import SUPPLY_VOLTS
     from jack.show.motion.poses import load_profiles
 
     parser = argparse.ArgumentParser(description="Write a TouchOSC layout for Jack.")
-    parser.add_argument("--port", type=int, default=DEFAULT_RECEIVE_PORT, help="the port TouchOSC receives on (1024-65535)")
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_RECEIVE_PORT, help="the port TouchOSC receives on (1024-65535)"
+    )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     args = parser.parse_args(argv)
     if not 1024 <= args.port <= 65535:

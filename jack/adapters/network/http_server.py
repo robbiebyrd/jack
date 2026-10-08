@@ -5,15 +5,18 @@ See "HTTP" in SPEC.md. Request logging is off: a held slider on the control page
 """
 
 import json
-import sys
+import logging
 import threading
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from jack.show.control.commands import CommandError, apply
 from jack.show.control.control_board import ControlBoard
+from jack.show.control.routes import command_for
 from jack.show.motion.poses import MotorProfile
-from jack.show.control.show_commands import CommandError, apply, http_command
+
+log = logging.getLogger(__name__)
 
 MAX_BODY_BYTES = 4096
 # A phone dropping Wi-Fi mid-request must not hold a server thread forever.
@@ -44,12 +47,12 @@ def start_http_server(
             if self.path == "/":
                 self._send(200, "text/html; charset=utf-8", page)
             elif self.path == "/status":
-                self._json(200, board.status(mumble_connected()))
+                self._json(200, board.status(mumble_connected()).to_json())
             else:
                 self._json(404, {"error": f"no page at {self.path}"})
 
         def _post(self) -> None:
-            apply(http_command(self.path, self._body(), profiles), board)
+            apply(command_for(self.path, self._body(), profiles), board)
             self._json(200, {"ok": True})
 
         def _respond(self, handle: Callable[[], None]) -> None:
@@ -58,9 +61,9 @@ def start_http_server(
                 handle()
             except CommandError as error:
                 self._json(error.status, {"error": str(error)})
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001  # process boundary: any failure becomes a 500
                 message = f"internal error: {type(error).__name__}: {error}".replace("\n", " ")
-                print(f"http: {self.command} {self.path}: {message}", file=sys.stderr)
+                log.error("http: %s %s: %s", self.command, self.path, message)
                 self._json(500, {"error": message})
 
         def _content_length(self) -> int:

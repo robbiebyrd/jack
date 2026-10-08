@@ -9,7 +9,7 @@ from jack.show.audio.pcm import FRAME_BYTES, FRAME_SAMPLES, SAMPLE_BYTES, SAMPLE
 class WavSource:
     def __init__(self, path: str | Path):
         try:
-            self._wav = wave.open(str(path), "rb")
+            self._wav = wave.open(str(path), "rb")  # noqa: SIM115  # read a frame per tick; closed at the end
         except (wave.Error, EOFError) as error:
             raise ValueError(f"{path} is not a readable WAV file: {error}") from error
         found = (self._wav.getnchannels(), self._wav.getsampwidth(), self._wav.getframerate())

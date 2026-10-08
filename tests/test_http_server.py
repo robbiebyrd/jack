@@ -7,9 +7,9 @@ import urllib.request
 
 import pytest
 
-from jack.show.control.control_board import ControlBoard
 from jack.adapters.network import http_server
 from jack.adapters.network.http_server import MAX_BODY_BYTES, start_http_server
+from jack.show.control.control_board import ControlBoard
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
 
@@ -112,7 +112,7 @@ class BrokenBoard:
         raise RuntimeError("boom")
 
 
-def test_unexpected_error_is_a_json_500_and_the_server_keeps_serving(capsys):
+def test_unexpected_error_is_a_json_500_and_the_server_keeps_serving(caplog):
     server = start_http_server("127.0.0.1", 0, BrokenBoard(), PROFILES, lambda: True)
     base = f"http://127.0.0.1:{server.server_address[1]}"
     try:
@@ -123,7 +123,7 @@ def test_unexpected_error_is_a_json_500_and_the_server_keeps_serving(capsys):
     finally:
         server.shutdown()
         server.server_close()
-    assert "RuntimeError" in capsys.readouterr().err
+    assert "RuntimeError" in caplog.text
 
 
 def read_until_closed(sock, deadline_s):

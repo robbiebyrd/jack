@@ -32,5 +32,5 @@ def mix(frames: Sequence[bytes]) -> bytes:
     if len(frames) == 1:
         return frames[0]
     decoded = [array("h", frame) for frame in frames]
-    mixed = array("h", (max(SAMPLE_MIN, min(SAMPLE_MAX, sum(samples))) for samples in zip(*decoded)))
+    mixed = array("h", (max(SAMPLE_MIN, min(SAMPLE_MAX, sum(samples))) for samples in zip(*decoded, strict=True)))
     return mixed.tobytes()

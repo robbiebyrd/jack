@@ -1,8 +1,8 @@
 """How much of a motor's measured holds its current drive has used (stall protection).
 
 Each 20 ms tick at `volts` spends TICK_S / hold(volts) of a whole budget of 1; ticks at 0 V spend
-nothing. Any rest refills it. Shared by show control (motor_driver.py) and lip sync (lip_sync.py).
-See "Command board" in SPEC.md.
+nothing. A tick at rest refills it. Owned by the motor's MotorDriver (motor_driver.py), which
+spends it for show commands and lip sync alike. See "Command board" in SPEC.md.
 """
 
 from jack.show.audio.pcm import TICK_S
@@ -26,15 +26,6 @@ class StallBudget:
     def exhausted(self) -> bool:
         """True once the drive has gone past the hold."""
         return self._spent > 1.0 + BUDGET_TOLERANCE
-
-    @property
-    def spent(self) -> float:
-        """How much of the whole budget (1) the drive has used since the last rest."""
-        return self._spent
-
-    def take_over(self, spent: float) -> None:
-        """Continue from a budget something else spent driving the same motor, so a hand-over isn't a rest."""
-        self._spent = spent
 
     def refill(self) -> None:
         self._spent = 0.0

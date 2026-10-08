@@ -4,12 +4,12 @@ from jack.show.motion.motors import HAT1_ADDRESS, HAT2_ADDRESS, MOTOR_NAMES, MOT
 
 
 def test_the_four_motors_and_where_they_are_wired():
-    assert MOTORS == (
+    assert (
         MotorSpec("mouth", 0x40, "A", two_sided=False),
         MotorSpec("hand", 0x40, "B", two_sided=True),
         MotorSpec("pivot", 0x41, "A", two_sided=True),
         MotorSpec("elbow", 0x41, "B", two_sided=False),
-    )
+    ) == MOTORS
     assert (HAT1_ADDRESS, HAT2_ADDRESS) == (0x40, 0x41)
 
 

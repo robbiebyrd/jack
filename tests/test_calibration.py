@@ -1,8 +1,8 @@
 import pytest
 
 from jack.application.calibration import MAX_MOVE_S, parse_command, pose_segments, run_calibration
-from jack.show.motion.mouth import hold, ramp
 from jack.show.motion.poses import Pose
+from jack.show.motion.segments import hold, ramp
 from tests.fakes import RecordingMotor, drives
 from tests.profiles import MOUTH, profile
 

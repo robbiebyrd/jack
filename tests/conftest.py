@@ -2,10 +2,13 @@ import os
 import shutil
 import socket
 import tempfile
+import time
 
 import pytest
 
 from jack.adapters.system import service_guard
+from jack.adapters.system.logging_setup import RATE_LIMIT_S
+from jack.support.rate_limit import RateLimit
 
 
 @pytest.fixture
@@ -21,6 +24,25 @@ def notify_socket(monkeypatch):
     yield server
     server.close()
     shutil.rmtree(directory)
+
+
+@pytest.fixture
+def journal(caplog):
+    """The captured log, rate-limited like the app's journal: `journal(clock)` installs the filter for this test.
+
+    pytest reuses its capture handler across tests, so the filter is removed again at teardown.
+    """
+    installed = []
+
+    def install(clock=time.monotonic):
+        limiter = RateLimit(RATE_LIMIT_S, clock)
+        caplog.handler.addFilter(limiter)
+        installed.append(limiter)
+        return caplog
+
+    yield install
+    for limiter in installed:
+        caplog.handler.removeFilter(limiter)
 
 
 @pytest.fixture

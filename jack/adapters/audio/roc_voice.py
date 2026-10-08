@@ -2,23 +2,25 @@
 
 roc-recv writes raw stereo signed 16-bit samples at 48 kHz to stdout in real time, both channels
 identical, and digital silence while nobody sends. A reader thread keeps the left channel, cuts
-it into talk-loop frames, and restarts roc-recv if it exits. See "ROC voice" in SPEC.md.
+it into talk-loop frames, and restarts roc-recv if it exits (logged, rate-limited by kind). See
+"ROC voice" in SPEC.md.
 """
 
+import logging
 import subprocess
 import threading
-import time
 from array import array
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 from jack.show.audio.frame_queue import FrameQueue
 from jack.show.audio.pcm import SAMPLE_RATE_HZ
-from jack.support.rate_limited_log import RateLimitedLog
+from jack.support.rate_limit import rate_limited
+
+log = logging.getLogger(__name__)
 
 # One stereo sample pair: two signed 16-bit samples.
 STEREO_SAMPLE_BYTES = 4
 READ_BYTES = 65536
-RESTART_LOG_INTERVAL_S = 60.0
 
 
 def roc_recv_command(source_port: int, repair_port: int, control_port: int, target_latency_ms: float) -> list[str]:
@@ -40,13 +42,11 @@ class RocVoice:
         self,
         command: Sequence[str],
         max_backlog_frames: int,
-        log: Callable[[str], None],
         restart_delay_s: float = 2.0,
         stop_grace_s: float = 1.0,
     ):
         self._command = list(command)
         self._queue = FrameQueue(max_backlog_frames)
-        self._log = RateLimitedLog(log, RESTART_LOG_INTERVAL_S, time.monotonic)
         self._restart_delay_s = restart_delay_s
         self._stop_grace_s = stop_grace_s
         self._closed = threading.Event()
@@ -91,14 +91,14 @@ class RocVoice:
                 code = self._read_until_exit(process)
                 if self._closed.is_set():
                     return
-                self._log("exited", f"roc-recv exited (code {code}); restarting")
+                log.warning("roc-recv exited (code %s); restarting", code, **rate_limited("roc-recv exited"))
             if self._closed.wait(self._restart_delay_s):
                 return
             try:
                 process = self._spawn()
             except OSError as error:
                 process = None
-                self._log("spawn", f"roc-recv could not start ({error}); retrying")
+                log.warning("roc-recv could not start (%s); retrying", error, **rate_limited("roc-recv spawn"))
                 continue
             with self._lock:
                 if self._closed.is_set():

@@ -1,3 +1,46 @@
+[project]
+name = "jack"
+version = "0.1.0"
+description = "Raspberry Pi animatronic: voice, lip sync and OSC/HTTP show control for four motors"
+requires-python = ">=3.11"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",     # pycodestyle
+    "F",          # pyflakes
+    "I",          # isort: stdlib, third-party, local
+    "B",          # bugbear: mutable defaults, late-binding closures, zip without strict
+    "UP",         # pyupgrade: X | None, list[str]
+    "ANN",        # type annotations on public functions
+    "BLE",        # no blind except Exception
+    "S101",       # no assert outside tests
+    "PL",         # pylint: no bare except, no redefined builtins, ...
+    "SIM",        # simplify
+    "RUF",        # ruff's own: mutable class defaults, ambiguous unicode, ...
+    "C4",         # comprehensions
+    "N",          # pep8 naming
+    "ARG",        # unused arguments
+    "T20",        # print: the app logs; only the CLIs print
+]
+ignore = [
+    "ANN401",     # Any is allowed where a library hands us untyped objects
+    "ANN204",     # __init__ returning None is implied
+    "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917",  # size limits: judged in review, not counted
+    "PLR2004",    # magic values: the hardware constants are explained by their comments
+    "PLC0415",    # imports inside functions keep Pi-only libraries off the dev machine
+]
+
+[tool.ruff.lint.per-file-ignores]
+"calibrate.py" = ["T201"]
+"lipsync_wav.py" = ["T201"]
+"tools/*" = ["T201"]
+"tests/*" = ["ANN", "S101", "T201", "ARG", "PLW1510", "B008"]

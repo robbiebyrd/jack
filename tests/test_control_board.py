@@ -3,6 +3,7 @@ import threading
 import pytest
 
 from jack.show.control.control_board import ControlBoard
+from jack.show.control.status import PoseCommand, ValueCommand
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
 
@@ -118,15 +119,28 @@ def test_status_reports_mode_commands_reports_and_motor_facts():
     clock.advance(0.2)
     b.report("hand", 1.5, False)
     status = b.status(mumble_connected=True)
-    assert status["mouth_mode"] == "live" and status["mumble_connected"] is True
-    assert status["motors"]["hand"]["command"] == {"value": 0.5, "age_s": 0.2}
-    assert status["motors"]["elbow"]["command"] == {"pose": "up", "seconds_left": 0.3}
-    assert status["motors"]["hand"]["volts"] == 1.5
-    assert status["motors"]["hand"]["max_hold_tripped"] is False
-    assert status["motors"]["pivot"]["two_sided"] is True
-    assert status["motors"]["pivot"]["poses"] == ["left", "right"]
-    assert status["motors"]["mouth"]["calibrated"] is True
-    assert status["motors"]["mouth"]["command"] is None
+    assert status.mouth_mode == "live" and status.mumble_connected is True
+    assert status.motors["hand"].command == ValueCommand(value=0.5, age_s=0.2)
+    assert status.motors["elbow"].command == PoseCommand(pose="up", seconds_left=0.3)
+    assert status.motors["hand"].volts == 1.5
+    assert status.motors["hand"].max_hold_tripped is False
+    assert status.motors["pivot"].two_sided is True
+    assert status.motors["pivot"].poses == ("left", "right")
+    assert status.motors["mouth"].calibrated is True
+    assert status.motors["mouth"].command is None
+
+
+def test_status_serialises_to_the_json_document_the_control_page_reads():
+    b, clock = board()
+    b.set_value("hand", 0.5)
+    clock.advance(0.2)
+    document = b.status(mumble_connected=False).to_json()
+    assert document["mouth_mode"] == "live" and document["mumble_connected"] is False
+    assert document["motors"]["hand"]["command"] == {"value": 0.5, "age_s": 0.2}
+    assert document["motors"]["mouth"]["command"] is None
+    assert document["motors"]["pivot"]["poses"] == ("left", "right")  # json.dumps writes a tuple as a list
+    fields = {"command", "volts", "max_hold_tripped", "calibrated", "two_sided", "poses"}
+    assert set(document["motors"]["hand"]) == fields
 
 
 def test_concurrent_writers_and_reader_see_whole_commands():

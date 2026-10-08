@@ -10,6 +10,7 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from jack.show.control.status import MotorStatus, PoseCommand, Status, ValueCommand
 from jack.show.motion.motors import MOTOR_NAMES, motor_spec
 from jack.show.motion.poses import MotorProfile
 
@@ -30,7 +31,9 @@ class _Pose:
 
 
 class ControlBoard:
-    def __init__(self, profiles: Mapping[str, MotorProfile], timeout_s: float, mouth_mode: str, clock: Callable[[], float]):
+    def __init__(
+        self, profiles: Mapping[str, MotorProfile], timeout_s: float, mouth_mode: str, clock: Callable[[], float]
+    ):
         if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError(f"control timeout must be a positive number of seconds, got {timeout_s}")
         _check_mode(mouth_mode)
@@ -40,7 +43,7 @@ class ControlBoard:
         self._lock = threading.Lock()
         self._mouth_mode = mouth_mode
         self._commands: dict[str, _Value | _Pose] = {}
-        self._reports: dict[str, tuple[float, bool]] = {name: (0.0, False) for name in MOTOR_NAMES}
+        self._reports: dict[str, tuple[float, bool]] = dict.fromkeys(MOTOR_NAMES, (0.0, False))
 
     @property
     def mouth_mode(self) -> str:
@@ -89,22 +92,25 @@ class ControlBoard:
         with self._lock:
             self._reports[motor] = (volts, max_hold_tripped)
 
-    def status(self, mumble_connected: bool) -> dict:
+    def status(self, mumble_connected: bool) -> Status:
+        """A consistent snapshot of every motor's command and report, the mouth mode and the Mumble link."""
         with self._lock:
             now = self._clock()
-            motors = {}
-            for name in MOTOR_NAMES:
-                volts, tripped = self._reports[name]
-                profile = self._profiles[name]
-                motors[name] = {
-                    "command": _describe(self._current(name, now), now),
-                    "volts": volts,
-                    "max_hold_tripped": tripped,
-                    "calibrated": profile.calibrated,
-                    "two_sided": motor_spec(name).two_sided,
-                    "poses": sorted(profile.poses),
-                }
-            return {"mouth_mode": self._mouth_mode, "mumble_connected": mumble_connected, "motors": motors}
+            motors = {name: self._motor_status(name, now) for name in MOTOR_NAMES}
+            return Status(mouth_mode=self._mouth_mode, mumble_connected=mumble_connected, motors=motors)
+
+    def _motor_status(self, name: str, now: float) -> MotorStatus:
+        """Caller holds the lock."""
+        volts, tripped = self._reports[name]
+        profile = self._profiles[name]
+        return MotorStatus(
+            command=_describe(self._current(name, now), now),
+            volts=volts,
+            max_hold_tripped=tripped,
+            calibrated=profile.calibrated,
+            two_sided=motor_spec(name).two_sided,
+            poses=tuple(sorted(profile.poses)),
+        )
 
     def _current(self, motor: str, now: float) -> _Value | _Pose | None:
         """The motor's command if still in force, dropping it once expired. Caller holds the lock."""
@@ -123,9 +129,9 @@ def _check_mode(mode: str) -> None:
         raise ValueError(f"mouth mode must be one of {', '.join(MOUTH_MODES)}, got {mode!r}")
 
 
-def _describe(command: _Value | _Pose | None, now: float) -> dict | None:
+def _describe(command: _Value | _Pose | None, now: float) -> ValueCommand | PoseCommand | None:
     if command is None:
         return None
     if isinstance(command, _Value):
-        return {"value": command.value, "age_s": round(now - command.received_at, 3)}
-    return {"pose": command.name, "seconds_left": round(command.started_at + command.seconds - now, 3)}
+        return ValueCommand(command.value, round(now - command.received_at, 3))
+    return PoseCommand(command.name, round(command.started_at + command.seconds - now, 3))
