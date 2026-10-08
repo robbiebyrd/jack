@@ -216,7 +216,10 @@ Redesigned with Boss, 2026-10-04: in live mode the audio's amplitude sets
 the mouth's voltage directly, as on the Talking Skull board, instead of a
 gate-and-curve state machine (which, with the stall budget and a large
 gain, left the mouth moving only sporadically). A pure, tick-based
-controller: smoothed level in, signed volts for motor A out.
+target: smoothed level in, the volts the voice asks of the mouth out (or
+rest, below `min_v`). The mouth's `MotorDriver`, the same one show mode
+drives it through, applies the slew limit, the closing pull and the stall
+budget to that target (see "Command board").
 
 - **Amplitude:** the smoothed level (RMS dBFS through the attack/release
   envelope) as a fraction of full scale: `a = 10 ^ (level_db / 20)`.
@@ -240,7 +243,8 @@ controller: smoothed level in, signed volts for motor A out.
   same one show control uses (see "Command board"): `TICK_S / hold(volts)`
   from the mouth's `holds` in `poses.toml`. When an opening spends it, the
   mouth plays the closing pull and stays closed until the target drops
-  below `min_v` (a quiet moment). Every close refills it.
+  below `min_v` (a quiet moment). The pull spends it too; a tick at rest
+  refills it.
 - **Gain check:** a gain at which silence (−90 dBFS) would reach `min_v`
   stops the app at startup with a one-line message, since silence would
   then hold the mouth open.
@@ -486,10 +490,12 @@ holds the latest command — a **value** (with arrival time) or a **pose**
 - Max hold: a stall budget. Each driven tick at the volts actually applied
   (after slew) uses `TICK_S / hold(volts)` of it; when the budget is spent
   the motor is forced to rest until a rest command arrives or commands
-  stop. Any rest refills the budget at once. Rest-pulse ticks use none (the
-  pulse is checked against the holds at load). `jack/show/motion/stall_budget.py`
-  holds the budget; lip sync spends the mouth's the same way (see "Mouth
-  control"). So 0.25 s at 6 V and 1 s at
+  stop. Rest-pulse ticks spend it too (the pulse is checked against the
+  holds at load), and only a tick at rest refills it, so a command
+  flickering on and off can't stack pulses past the holds; a spent budget
+  rests one tick before its pulse. `jack/show/motion/stall_budget.py` holds
+  the budget, owned by the motor's `MotorDriver`, which lip sync drives the
+  mouth through as well (see "Mouth control"). So 0.25 s at 6 V and 1 s at
   2 V on the mouth (half of 0.5 s, half of 2 s) together spend it.
 - The slew limit applies only to driving harder (a growing magnitude, or a
   reversal of direction). Easing off is immediate, and so are going to rest
@@ -517,11 +523,12 @@ on the hardware).
 - Switched at runtime by OSC `/jack/mouth/mode live|show` or
   `POST /mouth/mode`. The startup mode comes from `JACK_MOUTH_MODE` in
   `jack.env` (`live` or `show`); a restart returns to it (not persisted).
-- A switch never jumps the mouth: to `show`, the mouth's driver takes over
-  from the volts lip sync left it at, so it slews from there or, with no
-  command, plays the rest pulse before braking; to `live`, lip sync starts
-  fresh (closed) and opens with its own slew. A real switch drops any mouth
-  command, so a stale show command can't resume after a later switch back.
+- A switch never jumps the mouth: one `MotorDriver` drives the mouth in
+  both modes, so after a switch it carries on from the volts and stall
+  budget it has. To `show` with no command it plays the rest pulse before
+  braking; to `live`, lip sync's target takes over from wherever show left
+  the mouth. A real switch drops any mouth command, so a stale show command
+  can't resume after a later switch back.
 
 ### OSC (UDP, default port 9000, `JACK_OSC_PORT`)
 
@@ -728,7 +735,8 @@ support them:
 - `jack/show/motion/motor_driver.py` (domain, pure): `MotorDriver`, one per
   motor, turns the commanded volts (or None for rest) into its drive each
   20 ms tick: slew limit on driving harder, max-hold trip, rest pulse, then
-  `Rest("brake")` or `Rest("coast")`.
+  `Rest("brake")` or `Rest("coast")`. The mouth's takes lip sync's target
+  in live mode and the board's in show mode, so its state is the motor's.
 - `jack/support/rate_limited_log.py`: `RateLimitedLog(print, interval_s,
   clock)`, a callable that lets one line per key through per interval, so a
   flood of bad OSC messages stays one journal line per kind per minute.
@@ -778,8 +786,9 @@ support them:
   attack/release smoother.
 - `jack/show/audio/talk_settings.py` (domain, pure): `TalkSettings`, every
   tunable in the table above with its starting value, validated.
-- `jack/show/audio/lip_sync.py` (domain, pure): the mouth controller; level
-  in, signed volts (amplitude × gain, see "Mouth control") out, one call per tick.
+- `jack/show/audio/lip_sync.py` (domain, pure): `LipSync.target(level_db)`,
+  the volts the voice asks of the mouth (amplitude × gain, see "Mouth
+  control"), or None for rest; the mouth's `MotorDriver` does the rest.
 - `jack/show/audio/frame_queue.py` (domain): `FrameQueue`, a thread-safe,
   bounded queue that cuts arbitrary PCM chunks into frames and drops the
   oldest past its limit.
@@ -863,7 +872,8 @@ support them:
     shifting the mapping; below `min_v` the closing pull then a brake; a
     sound interrupting the pull; the opening slew limit; the stall budget
     closing a long opening, holding it closed until a quiet moment, and
-    refilling at every close; the gain check; replaced settings refused.
+    refilling at rest; the gain check; replaced settings refused. The
+    target is tested alone and through the mouth's `MotorDriver`.
   - `FrameQueue` cuts chunks of any length into whole frames, keeps a
     partial frame for the next chunk, drops the oldest frames past its
     limit and reports how many, and stays consistent under concurrent puts.

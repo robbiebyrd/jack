@@ -1,8 +1,11 @@
 """Turns one motor's commanded volts into its drive for each 20 ms tick, within its limits.
 
-Driving harder is slew-limited; driving away from rest spends the motor's stall budget
-(stall_budget.py), and spending it forces a rest until commands stop; going to rest plays the
-motor's rest pulse, then brakes or coasts. See "Command board" in SPEC.md.
+Driving harder is slew-limited. Every driven tick, the rest pulse's included, spends the motor's
+stall budget (stall_budget.py); spending it forces a rest until commands stop. Going to rest plays
+the motor's rest pulse, then brakes or coasts, and only a tick at rest refills the budget, so a
+command flickering on and off can't stack pulses past the motor's holds. One driver per motor: in
+live mode the mouth's commands come from lip sync, in show mode from the command board, and the
+driver's state is the motor's. See "Command board" in SPEC.md.
 """
 
 from dataclasses import dataclass
@@ -32,21 +35,6 @@ class MotorDriver:
         self._pulse_left = 0
         self.max_hold_tripped = False
 
-    @property
-    def budget_spent(self) -> float:
-        """How much of the motor's stall budget the current drive has used."""
-        return self._budget.spent
-
-    def resume_from(self, volts: float, budget_spent: float = 0.0) -> None:
-        """Take over a motor something else left at `volts` after spending `budget_spent` of its stall budget.
-
-        The next update slews (or rests) from there, and the hand-over doesn't refill the budget.
-        """
-        self._volts = volts
-        self._budget.take_over(budget_spent)
-        self._pulse_left = 0
-        self.max_hold_tripped = False
-
     def update(self, target: float | None) -> Drive:
         """Advance one tick toward `target` volts (None or 0 = rest) and return the drive."""
         if target is None or target == 0.0:
@@ -71,12 +59,15 @@ class MotorDriver:
         return current + step
 
     def _to_rest(self) -> Drive:
-        # Refill even at exactly 0 V (a reversal can land there), so the next command gets its whole budget.
-        self._budget.refill()
+        """The rest pulse after a drive, then rest; a spent budget rests a tick (refilling it) before pulling."""
         if self._volts != 0.0:
             self._volts = 0.0
             self._pulse_left = self._pulse_ticks
-        if self._pulse_left > 0:
-            self._pulse_left -= 1
-            return self._profile.rest_pulse_v
+        if self._pulse_left > 0 and not self._budget.exhausted:
+            self._budget.spend(self._profile.rest_pulse_v)
+            if not self._budget.exhausted:
+                self._pulse_left -= 1
+                return self._profile.rest_pulse_v
+        # A tick at rest, even one a reversal landed on at exactly 0 V: the only thing that refills the budget.
+        self._budget.refill()
         return Rest(self._profile.rest)

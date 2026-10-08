@@ -1,16 +1,14 @@
-"""Turns the audio's smoothed level into mouth voltage, one 20 ms tick at a time.
+"""Turns the audio's smoothed level into the volts the voice asks of the mouth, one 20 ms tick at a time.
 
-The voltage follows the audio's amplitude, as on the Talking Skull board: max_v x amplitude x gain, capped at
-max_v. Below min_v the mouth gets a short closing pull (its rest pulse), then brakes; it holds closed unpowered.
-Opening wider is slew-limited, and an opening that spends the mouth's stall budget closes until a quiet moment.
-See "Mouth control" in SPEC.md.
+The target follows the audio's amplitude, as on the Talking Skull board: max_v x amplitude x gain, capped at
+max_v, in the direction of the mouth's `sign`. Below min_v the voice asks for rest (None). The mouth's
+MotorDriver then applies the slew limit, the stall budget and the closing pull (its rest pulse), exactly as
+it does for show commands, so lip sync and show control share one driver. See "Mouth control" in SPEC.md.
 """
 
 from jack.show.audio.envelope import FLOOR_DB
-from jack.show.audio.pcm import TICK_S
 from jack.show.audio.talk_settings import TalkSettings
 from jack.show.motion.poses import MotorProfile
-from jack.show.motion.stall_budget import StallBudget
 
 
 def check_mouth_gain(settings: TalkSettings, mouth: MotorProfile) -> None:
@@ -23,59 +21,17 @@ def check_mouth_gain(settings: TalkSettings, mouth: MotorProfile) -> None:
         )
 
 
-class MouthController:
-    """Signed volts for the mouth from the smoothed level (dBFS), opening in the direction of its `sign`."""
+class LipSync:
+    """The mouth's target volts for a smoothed level (dBFS): signed in the mouth's opening direction, None for rest."""
 
-    def __init__(self, settings: TalkSettings, mouth: MotorProfile, budget_spent: float = 0.0):
-        """`budget_spent`: stall budget a previous driver of the mouth used, which a mode switch doesn't refill."""
+    def __init__(self, settings: TalkSettings, mouth: MotorProfile):
         check_mouth_gain(settings, mouth)
         self._mouth = mouth
         self._gain = 10 ** (settings.mouth_gain_db / 20)
-        self._slew_per_tick = mouth.slew_v_per_s * TICK_S
-        self._pull_ticks = mouth.rest_pulse_ticks
-        self._magnitude = 0.0
-        self._pull_left = 0
-        self._budget = StallBudget(mouth)
-        self._budget.take_over(budget_spent)
-        # Set when an opening spent the budget; the mouth stays closed until the sound drops below min_v.
-        self._waiting_for_quiet = False
 
-    @property
-    def budget_spent(self) -> float:
-        """How much of the mouth's stall budget the current drive has used."""
-        return self._budget.spent
-
-    def update(self, level_db: float) -> float:
-        """Advance one tick with the current smoothed level and return the mouth voltage."""
-        target = min(self._mouth.max_v, self._mouth.max_v * 10 ** (level_db / 20) * self._gain)
-        if target < self._mouth.min_v:
-            self._waiting_for_quiet = False
-            return self._close()
-        if self._waiting_for_quiet:
-            return self._close()
-        self._pull_left = 0
-        # Opening wider is slew-limited because stepping straight to fully open strains the motor.
-        self._magnitude = min(target, self._magnitude + self._slew_per_tick)
-        volts = self._mouth.sign * self._magnitude
-        self._budget.spend(volts)
-        if not self._budget.exhausted:
-            return volts
-        self._waiting_for_quiet = True
-        return self._close()
-
-    def _close(self) -> float:
-        """The closing pull after an opening, then 0 V (short brake).
-
-        Pull ticks spend the stall budget too, and only a 0 V tick (a rest) refills it, so sound flickering
-        around min_v can't stack pulls past the mouth's holds; a spent budget rests a tick before pulling.
-        """
-        if self._magnitude > 0:
-            self._magnitude = 0.0
-            self._pull_left = self._pull_ticks
-        if self._pull_left > 0 and not self._budget.exhausted:
-            self._budget.spend(self._mouth.rest_pulse_v)
-            if not self._budget.exhausted:
-                self._pull_left -= 1
-                return self._mouth.rest_pulse_v
-        self._budget.refill()
-        return 0.0
+    def target(self, level_db: float) -> float | None:
+        """Volts in proportion to the amplitude at `level_db`, capped at max_v; None (rest) below min_v."""
+        volts = min(self._mouth.max_v, self._mouth.max_v * 10 ** (level_db / 20) * self._gain)
+        if volts < self._mouth.min_v:
+            return None
+        return self._mouth.sign * volts

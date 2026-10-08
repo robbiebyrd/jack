@@ -1,9 +1,7 @@
 import pytest
 
 from jack.application.talk_loop import run_talk_loop
-from jack.show.audio.envelope import EnvelopeFollower, rms_dbfs
-from jack.show.audio.lip_sync import MouthController
-from jack.show.audio.pcm import TICK_S, TICKS_PER_SECOND, silence
+from jack.show.audio.pcm import TICKS_PER_SECOND, silence
 from jack.show.audio.talk_settings import TalkSettings
 from jack.show.control.control_board import ControlBoard
 from jack.show.motion.ramp import volts_to_count
@@ -74,7 +72,7 @@ def talk(
 def test_quiet_sources_play_silence_and_keep_the_mouth_closed():
     sink, motors, _ = talk([ScriptedSource([])], ticks=3)
     assert sink.frames == [silence()] * 3
-    assert drives(motors["mouth"]) == [0]
+    assert motors["mouth"].calls == [("stop",), ("stop",)]  # braked once, then again on exit
 
 
 def test_uncommanded_motors_brake_once_then_again_on_exit():
@@ -132,7 +130,8 @@ def test_live_mode_mouth_ignores_the_board():
     board = new_board("live")
     board.set_value("mouth", 1.0)
     _, motors, _ = talk([ScriptedSource([])], ticks=2, board=board)
-    assert drives(motors["mouth"]) == [0]
+    assert drives(motors["mouth"]) == []
+    assert motors["mouth"].calls[0] == ("stop",)
 
 
 def test_a_coast_profile_coasts_at_rest():
@@ -174,22 +173,15 @@ def test_switching_to_show_while_lip_sync_holds_the_mouth_open_plays_the_rest_pu
     assert calls[2:] == [("drive", volts_to_count(0.5, SUPPLY_VOLTS)), ("stop",), ("stop",)]
 
 
-def test_switching_to_live_opens_from_closed_with_a_fresh_lip_sync_not_a_stale_one():
-    settings = TalkSettings()
+def test_switching_to_live_carries_on_from_the_volts_show_left_the_mouth_at():
     board = new_board("show", profiles=PROFILES)
     board.set_value("mouth", 1.0)
-    # The mouth's 48 V/s slew (0.96 V a tick) reaches -6 V on the 7th show tick; tick 8 is the first live one.
+    # The mouth's 48 V/s slew (0.96 V a tick) reaches -6 V on the 7th show tick; tick 8 is the first live one,
+    # and a loud voice asks for -6 V too, so the one driver has nothing new to write.
     source = SwitchingSource([LOUD] * 12, board, "live", on_tick=8)
-    _, motors, _ = talk([source], ticks=12, board=board, profiles=PROFILES, settings=settings)
-    show_drives, live_drives = drives(motors["mouth"])[:7], drives(motors["mouth"])[7:]
-    assert show_drives[-1] == volts_to_count(-6.0, SUPPLY_VOLTS)
-    # What a lip sync that starts closed at tick 8 drives, fed the same smoothed levels.
-    envelope = EnvelopeFollower(settings.attack_s, settings.release_s, TICK_S)
-    levels = [envelope.update(rms_dbfs(LOUD)) for _ in range(12)]
-    fresh = MouthController(settings, PROFILES["mouth"])
-    expected = [volts_to_count(fresh.update(level), SUPPLY_VOLTS) for level in levels[7:]]
-    assert expected[0] == volts_to_count(-0.96, SUPPLY_VOLTS)
-    assert live_drives == without_repeats(expected)
+    _, motors, _ = talk([source], ticks=12, board=board, profiles=PROFILES)
+    slew = [volts_to_count(-0.96 * n, SUPPLY_VOLTS) for n in range(1, 7)]
+    assert drives(motors["mouth"]) == [*slew, volts_to_count(-6.0, SUPPLY_VOLTS)]
 
 
 def test_switching_to_show_hands_over_the_spent_stall_budget_not_a_fresh_one():

@@ -1,8 +1,9 @@
 """Jack's talk loop: plays the voices, measures their loudness and drives every motor.
 
 The sound card's blocking write paces the loop at one 20 ms frame per tick, so audio,
-mouth and watchdog all run on the same clock. The mouth follows the voice in live mode;
-every other motor follows the show-control board. See "Talk loop" in SPEC.md.
+mouth and watchdog all run on the same clock. The mouth's target comes from the voice in live
+mode and from the show-control board in show mode; every other motor's from the board. One
+MotorDriver per motor turns targets into drives. See "Talk loop" in SPEC.md.
 """
 
 from collections import deque
@@ -10,7 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 
 from jack.application.ports import AudioSink, MotorOutput, VoiceSource
 from jack.show.audio.envelope import EnvelopeFollower, rms_dbfs
-from jack.show.audio.lip_sync import MouthController
+from jack.show.audio.lip_sync import LipSync
 from jack.show.audio.pcm import TICK_S, TICKS_PER_SECOND, mix, silence
 from jack.show.audio.talk_settings import TalkSettings
 from jack.show.control.control_board import ControlBoard
@@ -33,47 +34,34 @@ def run_talk_loop(
 ) -> None:
     """Play every source and drive every motor until `until()` is true (never, for the app).
 
-    Each tick mixes the next frame from every source (silence if none are sounding). The mouth
-    follows that frame's smoothed loudness in live mode, or the board in show mode; every other
-    motor follows the board through its MotorDriver. Switching the mouth to show hands its driver
-    the volts lip sync left it at; switching to live starts a fresh, closed lip sync. A motor is
-    written only when its drive changes. The frame plays `mouth_lead_ticks` ticks later so the
-    mouth can run ahead of the sound. `on_second` runs once per second of audio. Every motor is
-    stopped and the sink closed on the way out, whatever the reason, and a failure in one of
-    those does not skip the others.
+    Each tick mixes the next frame from every source (silence if none are sounding). The mouth's
+    target is that frame's smoothed loudness through lip sync in live mode, or the board's command
+    in show mode; every other motor's target is the board's. Each motor's MotorDriver turns the
+    target into a drive, so a mode switch never jumps the mouth: the driver carries on from the
+    volts and stall budget it has. A motor is written only when its drive changes. The frame plays
+    `mouth_lead_ticks` ticks later so the mouth can run ahead of the sound. `on_second` runs once
+    per second of audio. Every motor is stopped and the sink closed on the way out, whatever the
+    reason, and a failure in one of those does not skip the others.
     """
     envelope = EnvelopeFollower(settings.attack_s, settings.release_s, TICK_S)
-    lip_sync = MouthController(settings, profiles["mouth"])
+    lip_sync = LipSync(settings, profiles["mouth"])
     drivers = {name: MotorDriver(profiles[name]) for name in motors}
     applied: dict[str, Drive | None] = dict.fromkeys(motors)
     delayed_audio = deque(silence() for _ in range(settings.mouth_lead_ticks))
-    mouth_mode = board.mouth_mode
     ticks = 0
     try:
         while not until():
             frames = [frame for source in sources for frame in source.take_frames()]
             frame = mix(frames) if frames else silence()
             level_db = envelope.update(rms_dbfs(frame))
-            mode = board.mouth_mode
-            if mode != mouth_mode:
-                if mode == "show":
-                    # Take over from where lip sync left the mouth, so it slews or rest-pulses from there,
-                    # with the stall budget lip sync spent: a mode switch is not a rest.
-                    drivers["mouth"].resume_from(_volts(applied["mouth"]), lip_sync.budget_spent)
-                else:
-                    # A fresh lip sync starts closed and opens with its own slew, and the budget show spent.
-                    lip_sync = MouthController(settings, profiles["mouth"], drivers["mouth"].budget_spent)
-                mouth_mode = mode
+            live_mouth = board.mouth_mode == "live"
             for name, motor in motors.items():
-                if name == "mouth" and mouth_mode == "live":
-                    drive, tripped = lip_sync.update(level_db), False
-                else:
-                    drive = drivers[name].update(board.target_volts(name))
-                    tripped = drivers[name].max_hold_tripped
+                target = lip_sync.target(level_db) if name == "mouth" and live_mouth else board.target_volts(name)
+                drive = drivers[name].update(target)
                 if drive != applied[name]:
                     _apply(motor, drive, supply_volts)
                     applied[name] = drive
-                board.report(name, _volts(drive), tripped)
+                board.report(name, _volts(drive), drivers[name].max_hold_tripped)
             delayed_audio.append(frame)
             sink.write(delayed_audio.popleft())
             ticks += 1

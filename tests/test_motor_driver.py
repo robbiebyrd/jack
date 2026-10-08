@@ -68,31 +68,28 @@ def test_new_command_interrupts_the_rest_pulse():
     assert run(driver, [-3.0, None, -2.0]) == [-3.0, 0.5, -2.0]
 
 
-def test_tripping_max_hold_plays_the_rest_pulse():
+def test_tripping_max_hold_rests_a_tick_then_plays_the_rest_pulse():
     driver = MotorDriver(profile("mouth", slew_v_per_s=1000.0))
     run(driver, [-3.0] * 50)
-    assert run(driver, [-3.0] * 5) == [0.5, 0.5, 0.5, 0.5, BRAKE]
+    # The tick that spends the budget rests (refilling it), then the pulse plays on the refilled budget.
+    assert run(driver, [-3.0] * 6) == [BRAKE, 0.5, 0.5, 0.5, 0.5, BRAKE]
 
 
-def test_resuming_an_open_motor_then_resting_plays_the_rest_pulse():
-    driver = MotorDriver(profile("mouth"))
-    driver.resume_from(-3.0)
-    assert run(driver, [None] * 5) == [0.5, 0.5, 0.5, 0.5, BRAKE]
+def test_the_rest_pulse_spends_the_budget_and_only_a_rest_tick_refills_it():
+    driver = MotorDriver(profile("mouth", slew_v_per_s=1000.0))  # every hold 1 s: 0.02 a tick
+    run(driver, [-3.0] * 49)
+    # The second pulse tick overspends: a rest tick refills, then the pulse finishes.
+    assert run(driver, [None] * 6) == [0.5, BRAKE, 0.5, 0.5, 0.5, BRAKE]
 
 
-def test_resuming_slews_from_the_motors_real_volts():
-    driver = MotorDriver(profile("mouth"))  # 48 V/s x 0.02 s = 0.96 V per tick
-    driver.resume_from(-3.0)
-    assert driver.update(-6.0) == pytest.approx(-3.96)
-
-
-def test_resuming_clears_a_tripped_max_hold_and_a_pending_pulse():
+def test_a_command_flickering_on_and_off_cannot_stack_pulses_past_the_hold():
     driver = MotorDriver(profile("mouth", slew_v_per_s=1000.0))
-    run(driver, [-3.0] * 51)
-    assert driver.max_hold_tripped
-    driver.resume_from(-2.0)
-    assert not driver.max_hold_tripped
-    assert run(driver, [-2.0] * 50) == [-2.0] * 50
+    drives = run(driver, [-3.0, None, None, None, None] * 30)
+    longest_drive = current = 0
+    for drive in drives:
+        current = 0 if drive == BRAKE else current + 1
+        longest_drive = max(longest_drive, current)
+    assert longest_drive <= 50
 
 
 def test_a_reversal_landing_on_zero_then_resting_restarts_the_hold_count():
