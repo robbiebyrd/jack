@@ -92,8 +92,8 @@ def test_the_saved_file_loads_back(tmp_path):
 
 
 def test_the_repo_layout_file_is_up_to_date():
+    from jack.adapters.system.deployment import POSES_PATHS
     from jack.show.motion.poses import load_profiles
-    from main import POSES_PATHS
 
     repo_file = Path(__file__).resolve().parent.parent / "touchosc" / "jack.tosc"
     profiles = load_profiles([POSES_PATHS[0]], 12.0)

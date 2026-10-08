@@ -1,11 +1,13 @@
+import dataclasses
 import signal
 
 import pytest
 
 import main
-from jack.show.audio.talk_settings import TalkSettings
-from tests.fakes import RecordingBus
-from tests.profiles import MOUTH
+from jack.adapters.system.deployment import POSES_PATHS
+from jack.application.config import RocConfig, load_app_config
+from jack.show.motion.motors import SUPPLY_VOLTS
+from tests.profiles import PROFILES
 
 
 def test_sigterm_handler_raises_system_exit_so_cleanup_runs():
@@ -43,221 +45,25 @@ def test_a_dead_mumble_client_is_logged_once_and_the_watchdog_keeps_pinging(noti
     assert log == ["Mumble stopped; ROC still works"]
 
 
-def test_mumble_password_comes_from_the_environment():
-    assert main.mumble_password({"JACK_MUMBLE_PASSWORD": "s3cret"}) == "s3cret"
-
-
-@pytest.mark.parametrize("environ", [{}, {"JACK_MUMBLE_PASSWORD": ""}])
-def test_missing_mumble_password_exits_with_where_to_set_it(environ):
-    with pytest.raises(SystemExit) as exit_info:
-        main.mumble_password(environ)
-    assert "JACK_MUMBLE_PASSWORD" in str(exit_info.value.code)
-    assert "/etc/jack/jack.env" in str(exit_info.value.code)
-
-
-def test_no_overrides_gives_the_default_settings():
-    assert main.talk_settings({}) == TalkSettings()
-
-
-def test_env_overrides_set_only_the_named_fields():
-    settings = main.talk_settings({"JACK_MOUTH_GAIN_DB": "20", "JACK_ATTACK_S": "0.02"})
-    assert settings == TalkSettings(mouth_gain_db=20.0, attack_s=0.02)
-
-
-def test_env_variables_that_are_not_settings_are_ignored():
-    assert main.talk_settings({"JACK_MUMBLE_PASSWORD": "s3cret"}) == TalkSettings()
-
-
-def test_empty_override_keeps_the_default():
-    assert main.talk_settings({"JACK_ATTACK_S": ""}) == TalkSettings()
-
-
-def test_override_that_is_not_a_number_exits_naming_the_variable():
-    with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({"JACK_ATTACK_S": "abc"})
-    assert exit_info.value.code == "JACK_ATTACK_S='abc' in /etc/jack/jack.env is not a number"
-
-
-def test_impossible_override_exits_saying_the_settings_are_invalid():
-    with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({"JACK_ATTACK_S": "0"})
-    assert "Mouth settings from /etc/jack/jack.env are invalid" in exit_info.value.code
-
-
-def test_applied_overrides_are_listed_for_the_log():
-    assert main.describe_overrides(TalkSettings(mouth_gain_db=20.0, attack_s=0.02)) == (
-        "mouth_gain_db=20.0, attack_s=0.02"
-    )
-    assert main.describe_overrides(TalkSettings()) == ""
-
-
-@pytest.mark.parametrize("var, value", [("JACK_ATTACK_S", "nan"), ("JACK_RELEASE_S", "inf")])
-def test_non_finite_override_exits_naming_the_variable(var, value):
-    with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({var: value})
-    assert exit_info.value.code == f"{var}={value!r} in /etc/jack/jack.env is not a number"
-
-
-@pytest.mark.parametrize(
-    "var, key",
-    [
-        ("JACK_OPEN_MIN_V", "min_v"),
-        ("JACK_OPEN_MAX_V", "max_v"),
-        ("JACK_OPEN_SLEW_V_PER_S", "slew_v_per_s"),
-        ("JACK_CLOSE_V", "rest_pulse_v"),
-        ("JACK_CLOSE_S", "rest_pulse_s"),
-    ],
-)
-def test_overrides_that_moved_to_poses_toml_stop_the_app_saying_where(var, key):
-    with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({var: "2"})
-    message = str(exit_info.value.code)
-    assert var in message and key in message and "/etc/jack/poses.toml" in message
-
-
-def test_motor_profiles_load_the_repo_poses_file():
-    assert main.motor_profiles()["mouth"].max_v == 6.0
-
-
-def test_invalid_poses_file_exits_with_one_line(tmp_path):
-    bad = tmp_path / "poses.toml"
-    bad.write_text("[hand]\nmax_v = 99\n")
-    with pytest.raises(SystemExit) as exit_info:
-        main.motor_profiles((main.POSES_PATHS[0], bad))
-    assert "99" in str(exit_info.value.code)
-
-
-def test_show_control_defaults():
-    assert main.show_control_config({}) == main.ShowControlConfig(
-        osc_port=9000, http_port=8080, timeout_s=5.0, mouth_mode="live"
-    )
-
-
-def test_reply_port_defaults_to_the_senders_port():
-    assert main.show_control_config({}).reply_port is None
-
-
-def test_reply_port_comes_from_the_environment():
-    assert main.show_control_config({"JACK_OSC_REPLY_PORT": "21601"}).reply_port == 21601
-
-
-@pytest.mark.parametrize("value", ["x", "0", "70000", "²"])
-def test_bad_reply_port_exits_naming_the_variable(value):
-    with pytest.raises(SystemExit) as exit_info:
-        main.show_control_config({"JACK_OSC_REPLY_PORT": value})
-    assert "JACK_OSC_REPLY_PORT" in str(exit_info.value.code)
-
-
-def test_show_control_from_the_environment():
-    config = main.show_control_config(
-        {"JACK_OSC_PORT": "9100", "JACK_HTTP_PORT": "8181", "JACK_CONTROL_TIMEOUT_S": "1.5", "JACK_MOUTH_MODE": "show"}
-    )
-    assert config == main.ShowControlConfig(osc_port=9100, http_port=8181, timeout_s=1.5, mouth_mode="show")
-
-
-@pytest.mark.parametrize(
-    "var, value",
-    [("JACK_OSC_PORT", "x"), ("JACK_OSC_PORT", "70000"), ("JACK_HTTP_PORT", "0"), ("JACK_CONTROL_TIMEOUT_S", "nan"),
-     ("JACK_CONTROL_TIMEOUT_S", "-1"), ("JACK_MOUTH_MODE", "auto")],
-)
-def test_bad_show_control_settings_exit_naming_the_variable(var, value):
-    with pytest.raises(SystemExit) as exit_info:
-        main.show_control_config({var: value})
-    assert var in str(exit_info.value.code)
-
-
-def test_build_motors_puts_each_motor_on_its_hat_and_channel():
-    bus = RecordingBus()
-    motors = main.build_motors(bus)
-    assert set(motors) == {"mouth", "hand", "pivot", "elbow"}
-    motors["elbow"].drive(100)
-    assert (0x41, 0x06 + 4 * 5 + 2, 100) in bus.writes  # HAT 2, channel B's PWM (channel 5) OFF_L
-
-
-class MissingHatBus(RecordingBus):
-    def write_byte_data(self, i2c_addr, register, value):
-        if i2c_addr == 0x41:
-            raise OSError("[Errno 121] Remote I/O error")
-        super().write_byte_data(i2c_addr, register, value)
-
-
-def test_a_missing_hat_exits_naming_its_address():
-    with pytest.raises(SystemExit) as exit_info:
-        main.build_motors(MissingHatBus())
-    assert "0x41" in str(exit_info.value.code)
-
-
-def test_the_first_hat_is_braked_before_a_missing_second_hat_stops_the_app():
-    bus = MissingHatBus()
-    with pytest.raises(SystemExit) as exit_info:
-        main.build_motors(bus)
-    assert "0x41" in str(exit_info.value.code)
-
-    def off_register_writes(channel, low, high):
-        base = 0x06 + 4 * channel
-        return {(0x40, base + 2, low), (0x40, base + 3, high)}
-
-    for direction_pin in (1, 2, 3, 4):  # IN1 and IN2 of channels A and B held high: short brake
-        assert off_register_writes(direction_pin, 0xFF, 0x0F) <= set(bus.writes)
-    for pwm in (0, 5):  # duty zeroed on both channels
-        assert off_register_writes(pwm, 0x00, 0x00) <= set(bus.writes)
-
-
-def test_a_non_ascii_digit_port_exits_naming_the_variable():
-    with pytest.raises(SystemExit) as exit_info:
-        main.show_control_config({"JACK_OSC_PORT": "²"})
-    assert "JACK_OSC_PORT" in str(exit_info.value.code)
-
-
-def test_roc_settings_default_to_the_spec_values():
-    assert main.roc_config({}) == main.RocConfig(
-        source_port=10001, repair_port=10002, control_port=10003, target_latency_ms=100.0
-    )
-
-
-def test_roc_settings_come_from_the_environment():
-    environ = {
-        "JACK_ROC_SOURCE_PORT": "11001", "JACK_ROC_REPAIR_PORT": "11002",
-        "JACK_ROC_CONTROL_PORT": "11003", "JACK_ROC_TARGET_LATENCY_MS": "120",
-    }
-    assert main.roc_config(environ) == main.RocConfig(11001, 11002, 11003, 120.0)
-
-
-@pytest.mark.parametrize(
-    "var, value",
-    [("JACK_ROC_SOURCE_PORT", "0"), ("JACK_ROC_REPAIR_PORT", "70000"), ("JACK_ROC_CONTROL_PORT", "x"),
-     ("JACK_ROC_TARGET_LATENCY_MS", "0"), ("JACK_ROC_TARGET_LATENCY_MS", "-5"), ("JACK_ROC_TARGET_LATENCY_MS", "nan")],
-)
-def test_bad_roc_settings_exit_naming_the_variable(var, value):
-    with pytest.raises(SystemExit) as exit_info:
-        main.roc_config({var: value})
-    assert var in str(exit_info.value.code)
-
-
 def test_a_missing_roc_recv_exits_saying_what_to_install(monkeypatch, tmp_path):
     monkeypatch.setenv("PATH", str(tmp_path))  # an empty directory: no roc-recv to find
     with pytest.raises(SystemExit) as exit_info:
-        main.start_roc_voice(main.roc_config({}), 10)
+        main.start_roc_voice(RocConfig(10001, 10002, 10003, 100.0), 10)
     assert exit_info.value.code == "roc-recv not found: sudo apt install roc-toolkit-tools"
 
 
-def test_mouth_gain_can_be_set_in_jack_env():
-    assert main.talk_settings({"JACK_MOUTH_GAIN_DB": "10"}).mouth_gain_db == 10.0
+def test_the_startup_line_names_the_ports_mode_motors_and_uncalibrated_motors():
+    config = load_app_config({"JACK_MUMBLE_PASSWORD": "x", "JACK_MOUTH_MODE": "show"}, POSES_PATHS, SUPPLY_VOLTS)
+    line = main.startup_line(config, ["mouth", "hand", "pivot", "elbow"])
+    assert "UDP 10001/10002/10003" in line and "100 ms" in line
+    assert "mouth show" in line and "OSC UDP 9000" in line and "HTTP 8080" in line
+    assert "OSC replies to sender's port" in line
+    assert line.endswith("uncalibrated: elbow")  # poses.toml's elbow is a placeholder
 
 
-@pytest.mark.parametrize("var", ["JACK_GATE_OPEN_DB", "JACK_GATE_CLOSE_DB", "JACK_FULL_DB", "JACK_OPEN_CURVE"])
-def test_a_replaced_lip_sync_setting_stops_the_app_saying_what_replaced_it(var):
-    with pytest.raises(SystemExit) as exit_info:
-        main.talk_settings({var: "-20"})
-    message = str(exit_info.value.code)
-    assert var in message and "JACK_MOUTH_GAIN_DB" in message and "amplitude" in message
-
-
-def test_a_mouth_gain_that_would_open_the_mouth_on_silence_stops_the_app():
-    with pytest.raises(SystemExit) as exit_info:
-        main.check_mouth_settings(TalkSettings(mouth_gain_db=80.0), {"mouth": MOUTH})
-    message = str(exit_info.value.code)
-    # Either file can cause it: the gain in jack.env, or the mouth's min_v/max_v in an override poses.toml.
-    assert "mouth_gain_db" in message
-    assert "/etc/jack/jack.env" in message and "poses.toml" in message
-    main.check_mouth_settings(TalkSettings(), {"mouth": MOUTH})
+def test_the_startup_line_omits_uncalibrated_when_every_motor_is_calibrated():
+    config = load_app_config({"JACK_MUMBLE_PASSWORD": "x", "JACK_OSC_REPLY_PORT": "21601"}, POSES_PATHS, SUPPLY_VOLTS)
+    calibrated = {name: dataclasses.replace(profile, calibrated=True) for name, profile in PROFILES.items()}
+    line = main.startup_line(dataclasses.replace(config, profiles=calibrated), list(calibrated))
+    assert "uncalibrated" not in line
+    assert line.endswith("OSC replies to 21601")

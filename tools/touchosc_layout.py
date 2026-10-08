@@ -148,8 +148,9 @@ def _slug(text: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from jack.adapters.system.deployment import POSES_PATHS
+    from jack.show.motion.motors import SUPPLY_VOLTS
     from jack.show.motion.poses import load_profiles
-    from main import POSES_PATHS, SUPPLY_VOLTS
 
     parser = argparse.ArgumentParser(description="Write a TouchOSC layout for Jack.")
     parser.add_argument(

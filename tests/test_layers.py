@@ -20,9 +20,11 @@ PURE_IMPORTS = {
     "array", "collections", "contextlib", "dataclasses", "enum", "itertools", "math", "random", "threading", "typing",
     "jack",
 }
-# poses.py reads its own TOML files (the spec's one exception).
-POSES = PACKAGE / "show" / "motion" / "poses.py"
-POSES_IMPORTS = {"pathlib", "tomllib"}
+# poses.py reads its own TOML files (the spec's one exception); config.py passes their paths to it.
+EXTRA_IMPORTS = {
+    PACKAGE / "show" / "motion" / "poses.py": {"pathlib", "tomllib"},
+    PACKAGE / "application" / "config.py": {"pathlib"},
+}
 MODULES = sorted(PACKAGE.rglob("*.py"))
 LAYERED = [path for path in MODULES if path != PACKAGE_INIT]
 PURE = [path for path in LAYERED if path.relative_to(PACKAGE).parts[0] != "adapters"]
@@ -74,7 +76,7 @@ def test_imports_only_point_down_a_layer(path):
 
 @pytest.mark.parametrize("path", PURE, ids=module_id)
 def test_pure_layers_import_only_what_does_no_io(path):
-    allowed = PURE_IMPORTS | (POSES_IMPORTS if path == POSES else set())
+    allowed = PURE_IMPORTS | EXTRA_IMPORTS.get(path, set())
     for name in imported_modules(path):
         assert name.split(".")[0] in allowed, f"{module_id(path)} imports {name}"
 

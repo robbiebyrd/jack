@@ -109,8 +109,8 @@ without a commit per try (see also "Calibration for every motor"):
   Ctrl-C, and I2C errors.
 - Code: `jack/application/calibration.py` (`parse_command`, `run_calibration`,
   talking to motors only through `MotorOutput`) and `calibrate.py`
-  (composition root reusing `main.py`'s hardware constants and
-  `POSES_PATHS`).
+  (composition root; the Pi's fixed facts, `POSES_PATHS` among them, come from
+  `jack/adapters/system/deployment.py`).
 
 ## Talking
 
@@ -688,12 +688,12 @@ jack/
     audio/      pcm, envelope, frame_queue, lip_sync, talk_settings
     motion/     motors, poses, motor_driver, stall_budget, ramp, segments
     control/    control_board, show_commands, osc_feedback
-  application/  ports, talk_loop, calibration
+  application/  ports, config, talk_loop, calibration
   adapters/
-    hardware/   pca9685, tb6612_motor
+    hardware/   pca9685, tb6612_motor, motor_hats
     audio/      alsa_sink, mumble_voice, wav_source
     network/    osc_server, http_server, control_page.html
-    system/     systemd_notify, service_guard
+    system/     systemd_notify, service_guard, deployment
   support/      attempt_all, rate_limited_log
 ```
 
@@ -806,23 +806,34 @@ support them:
   `until` check; always brakes every motor and closes the sink on exit.
 - `lipsync_wav.py`: composition root for the tuning tool (a `WavSource`
   in place of Mumble).
-- `main.py`: builds the `TalkSettings` with `talk_settings()` (defaults plus
-  `JACK_<FIELD>` overrides from the environment, checked against the supply
-  before touching hardware; the mouth's old volt variables are refused),
-  loads every motor's profile from `poses.toml` with `motor_profiles()`
-  (`POSES_PATHS`: the repo file, then `/etc/jack/poses.toml`), and reads the
-  ports, dead-man timeout and startup mouth mode with
-  `show_control_config()` (`JACK_OSC_PORT`, `JACK_HTTP_PORT`,
-  `JACK_CONTROL_TIMEOUT_S`, `JACK_MOUTH_MODE`). Before all of that it installs a SIGTERM
-  handler that raises `SystemExit` so the loop's cleanup runs. Once the
-  settings, profiles and show-control config are validated it builds the
-  `ControlBoard`, connects the Mumble bot, then builds both HATs and all four
-  motors with `build_motors` (each HAT's motors braked as soon as it is up; a
-  HAT that does not answer stops the app naming its address), opens the
-  ALSA sink, starts the OSC (UDP) and HTTP (TCP) servers on `0.0.0.0`, sends
-  `READY=1`, and runs the talk loop with `on_second`
-  the Mumble-aware watchdog callback (`WATCHDOG=1` while the bot's thread
-  lives, `SystemExit` once it has died).
+- `jack/application/config.py` (application, pure): every setting the app
+  reads before it touches hardware, from a mapping of environment variables
+  (`os.environ` in the app, a dict in tests) and the poses files.
+  `load_app_config(environ, poses_paths, supply_volts)` returns an
+  `AppConfig`: the `TalkSettings` (defaults plus `JACK_<FIELD>` overrides,
+  with the mouth's old volt variables and the replaced lip-sync variables
+  refused), every motor's `MotorProfile`, the mouth gain checked against the
+  mouth's volts, the `ShowControlConfig` (`JACK_OSC_PORT`, `JACK_HTTP_PORT`,
+  `JACK_CONTROL_TIMEOUT_S`, `JACK_MOUTH_MODE`, `JACK_OSC_REPLY_PORT`), the
+  `RocConfig` (`JACK_ROC_*`) and the Mumble password. Any problem raises
+  `ConfigError` (a `ValueError`) whose message names the variable, the file
+  and the fix; `main.py` turns it into a one-line exit.
+- `jack/adapters/system/deployment.py`: the Pi's fixed facts that `main.py`
+  and the hand-run tools share: the I2C bus, PWM frequency, ALSA device,
+  Mumble server address and `POSES_PATHS` (the repo file, then
+  `/etc/jack/poses.toml`). The 12 V supply is `SUPPLY_VOLTS` in
+  `jack/show/motion/motors.py`, beside the HAT addresses.
+- `jack/adapters/hardware/motor_hats.py`: `build_motors(bus, pwm_freq_hz)`
+  builds both HATs and all four motors from `MOTORS`, braking each HAT's
+  motors as soon as it is up; a HAT that does not answer raises `OSError`
+  naming its address.
+- `main.py` is the composition root. It installs a SIGTERM handler that
+  raises `SystemExit` so the loop's cleanup runs, loads the `AppConfig`,
+  builds the `ControlBoard`, connects the Mumble bot, starts `roc-recv`,
+  builds the motors, opens the ALSA sink, starts the OSC (UDP) and HTTP
+  (TCP) servers on `0.0.0.0`, logs one startup line, sends `READY=1`, and
+  runs the talk loop with `on_second` the Mumble-aware watchdog callback
+  (`WATCHDOG=1` while the bot's thread lives, one log line once it has died).
 
 ## Testing
 
