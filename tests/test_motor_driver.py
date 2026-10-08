@@ -24,7 +24,7 @@ def test_zero_volts_means_rest():
 
 
 def test_driving_harder_is_slew_limited():
-    # 24 V/s × 0.02 s = 0.48 V per tick.
+    # 24 V/s x 0.02 s = 0.48 V per tick.
     assert run(MotorDriver(profile("hand")), [2.0] * 5) == pytest.approx([0.48, 0.96, 1.44, 1.92, 2.0])
 
 
@@ -81,7 +81,7 @@ def test_resuming_an_open_motor_then_resting_plays_the_rest_pulse():
 
 
 def test_resuming_slews_from_the_motors_real_volts():
-    driver = MotorDriver(profile("mouth"))  # 48 V/s × 0.02 s = 0.96 V per tick
+    driver = MotorDriver(profile("mouth"))  # 48 V/s x 0.02 s = 0.96 V per tick
     driver.resume_from(-3.0)
     assert driver.update(-6.0) == pytest.approx(-3.96)
 

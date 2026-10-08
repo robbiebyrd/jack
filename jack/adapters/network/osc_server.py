@@ -1,4 +1,7 @@
-"""OSC over UDP for show control: receive commands, send replies and feedback. The only module that imports python-osc."""
+"""OSC over UDP for show control: receive commands, send replies and feedback.
+
+The only module that imports python-osc.
+"""
 
 import threading
 from collections.abc import Callable, Mapping
@@ -30,7 +33,7 @@ class OscEndpoint:
     def serve(self, handle: Callable[[str, list, Destination], None]) -> None:
         """Start serving on a daemon thread, passing each message's address, arguments and sender to `handle`."""
 
-        def deliver(sender: Destination, address: str, *args) -> None:
+        def deliver(sender: Destination, address: str, *args: object) -> None:
             # python-osc replies to the sender with any non-None handler return value.
             handle(address, list(args), sender)
 
@@ -68,14 +71,14 @@ def start_feedback(
                 continue
             try:
                 batches = subscribers.due(state_messages(status()))
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 # One bad cycle must not end feedback for the rest of the show.
                 log("feedback loop", f"OSC feedback cycle failed: {type(error).__name__}: {error}")
                 continue
             for destination, messages in batches:
                 try:
                     endpoint.send(destination, messages)
-                except Exception as error:
+                except Exception as error:  # noqa: BLE001
                     # Whatever one destination raises must not stop the others or the thread.
                     log(f"feedback {destination}", f"OSC feedback to {destination} failed: {error}")
 

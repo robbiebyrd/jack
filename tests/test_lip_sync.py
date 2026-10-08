@@ -155,9 +155,9 @@ def test_flicker_at_the_threshold_cannot_stack_closing_pulls_past_the_hold():
 
 
 # The real mouth opens with positive volts and pulls closed with negative ones (sign +1, rest pulse -0.5 V).
-REAL_ORIENTATION = dict(
-    sign=1, rest_pulse_v=-0.5, slew_v_per_s=1000.0, holds=(Hold(6.0, 1.0), Hold(-1.0, 1.0)),
-)
+REAL_ORIENTATION = {
+    "sign": 1, "rest_pulse_v": -0.5, "slew_v_per_s": 1000.0, "holds": (Hold(6.0, 1.0), Hold(-1.0, 1.0)),
+}
 
 
 def test_a_positive_sign_mouth_opens_with_positive_volts_in_proportion_to_amplitude():

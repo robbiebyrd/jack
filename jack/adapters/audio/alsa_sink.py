@@ -1,6 +1,7 @@
 """AudioSink on an ALSA playback device (the Pi's 3.5 mm jack) through python3-alsaaudio."""
 
 from collections.abc import Callable
+from typing import Protocol
 
 from jack.show.audio.pcm import FRAME_SAMPLES, SAMPLE_RATE_HZ
 
@@ -10,10 +11,18 @@ UNDERRUN_MESSAGE = "Broken pipe"
 UNDERRUN_LOG_EVERY = 100
 
 
+class Pcm(Protocol):
+    """The subset of alsaaudio.PCM the sink uses."""
+
+    def write(self, data: bytes) -> int: ...
+
+    def close(self) -> None: ...
+
+
 class AlsaSink:
     """Plays frames on an open alsaaudio PCM; underruns are logged and ridden through."""
 
-    def __init__(self, pcm, error_type: type[Exception], log: Callable[[str], None]):
+    def __init__(self, pcm: Pcm, error_type: type[Exception], log: Callable[[str], None]):
         self._pcm = pcm
         self._error_type = error_type
         self._log = log

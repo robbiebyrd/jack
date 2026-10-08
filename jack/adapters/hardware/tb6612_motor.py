@@ -6,9 +6,9 @@ https://github.com/nick-hunter/Raspberry_Pi_TB6612FNG_Python (MIT).
 
 from typing import NamedTuple
 
-from jack.support.attempt_all import attempt_all
 from jack.adapters.hardware.pca9685 import Pca9685
 from jack.show.motion.ramp import PWM_MAX_COUNT
+from jack.support.attempt_all import attempt_all
 
 LOW = 0
 HIGH = PWM_MAX_COUNT

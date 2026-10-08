@@ -31,7 +31,7 @@ def write(tmp_path, text, name="poses.toml"):
 def all_motors(**extra_by_motor):
     """A valid file for all four motors; extra_by_motor[name] is appended to that motor's table."""
     return "".join(
-        MOTOR_TABLE.format(name=name).replace("[" + name + ".poses]", extra_by_motor.get(name, "") + "\n[" + name + ".poses]")
+        MOTOR_TABLE.format(name=name).replace(f"[{name}.poses]", extra_by_motor.get(name, "") + f"\n[{name}.poses]")
         for name in ("mouth", "hand", "pivot", "elbow")
     )
 
@@ -210,7 +210,7 @@ def test_float_sign_is_stored_as_an_int(tmp_path):
 def test_a_leftover_max_hold_s_says_to_write_holds(tmp_path):
     base = write(tmp_path, all_motors())
     override = write(tmp_path, "[hand]\nmax_hold_s = 1.0\n", "pi.toml")
-    with pytest.raises(ValueError, match="max_hold_s.*holds") as error:
+    with pytest.raises(ValueError, match=r"max_hold_s.*holds") as error:
         load_profiles([base, override], SUPPLY)
     assert str(override) in str(error.value)
 

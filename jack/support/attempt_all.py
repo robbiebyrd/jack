@@ -9,7 +9,7 @@ def attempt_all(actions: Iterable[Callable[[], None]]) -> None:
     for action in actions:
         try:
             action()
-        except Exception as failure:
+        except Exception as failure:  # noqa: BLE001  # every action must run; the first failure is re-raised below
             failures.append(failure)
     if failures:
         raise failures[0]

@@ -30,7 +30,9 @@ class _Pose:
 
 
 class ControlBoard:
-    def __init__(self, profiles: Mapping[str, MotorProfile], timeout_s: float, mouth_mode: str, clock: Callable[[], float]):
+    def __init__(
+        self, profiles: Mapping[str, MotorProfile], timeout_s: float, mouth_mode: str, clock: Callable[[], float]
+    ):
         if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError(f"control timeout must be a positive number of seconds, got {timeout_s}")
         _check_mode(mouth_mode)
@@ -40,7 +42,7 @@ class ControlBoard:
         self._lock = threading.Lock()
         self._mouth_mode = mouth_mode
         self._commands: dict[str, _Value | _Pose] = {}
-        self._reports: dict[str, tuple[float, bool]] = {name: (0.0, False) for name in MOTOR_NAMES}
+        self._reports: dict[str, tuple[float, bool]] = dict.fromkeys(MOTOR_NAMES, (0.0, False))
 
     @property
     def mouth_mode(self) -> str:

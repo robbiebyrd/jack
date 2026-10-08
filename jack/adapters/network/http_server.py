@@ -12,8 +12,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from jack.show.control.control_board import ControlBoard
-from jack.show.motion.poses import MotorProfile
 from jack.show.control.show_commands import CommandError, apply, http_command
+from jack.show.motion.poses import MotorProfile
 
 MAX_BODY_BYTES = 4096
 # A phone dropping Wi-Fi mid-request must not hold a server thread forever.
@@ -58,9 +58,9 @@ def start_http_server(
                 handle()
             except CommandError as error:
                 self._json(error.status, {"error": str(error)})
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001  # process boundary: any failure becomes a 500
                 message = f"internal error: {type(error).__name__}: {error}".replace("\n", " ")
-                print(f"http: {self.command} {self.path}: {message}", file=sys.stderr)
+                print(f"http: {self.command} {self.path}: {message}", file=sys.stderr)  # noqa: T201
                 self._json(500, {"error": message})
 
         def _content_length(self) -> int:

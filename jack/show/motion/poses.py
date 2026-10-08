@@ -13,8 +13,8 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from jack.show.motion.motors import MOTOR_NAMES, motor_spec
 from jack.show.audio.pcm import TICK_S
+from jack.show.motion.motors import MOTOR_NAMES, motor_spec
 from jack.show.motion.ramp import whole_steps
 
 REST_MODES = ("brake", "coast")

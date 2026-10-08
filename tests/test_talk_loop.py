@@ -1,12 +1,12 @@
 import pytest
 
-from jack.show.control.control_board import ControlBoard
+from jack.application.talk_loop import run_talk_loop
 from jack.show.audio.envelope import EnvelopeFollower, rms_dbfs
 from jack.show.audio.lip_sync import MouthController
 from jack.show.audio.pcm import TICK_S, TICKS_PER_SECOND, silence
-from jack.show.motion.ramp import volts_to_count
-from jack.application.talk_loop import run_talk_loop
 from jack.show.audio.talk_settings import TalkSettings
+from jack.show.control.control_board import ControlBoard
+from jack.show.motion.ramp import volts_to_count
 from tests.audio import constant_frame
 from tests.fakes import FakeClock, MotorThatFailsToStop, RecordingMotor, RecordingSink, ScriptedSource, drives, no_op
 from tests.profiles import PROFILES, profile
@@ -61,7 +61,9 @@ def new_board(mode="live", profiles=FAST):
     return ControlBoard(profiles, 0.5, mode, FakeClock())
 
 
-def talk(sources, ticks, *, board=None, motors=None, sink=None, profiles=FAST, settings=TalkSettings(), on_second=no_op):
+def talk(
+    sources, ticks, *, board=None, motors=None, sink=None, profiles=FAST, settings=TalkSettings(), on_second=no_op
+):
     sink = RecordingSink() if sink is None else sink
     motors = four_motors() if motors is None else motors
     board = new_board(profiles=profiles) if board is None else board

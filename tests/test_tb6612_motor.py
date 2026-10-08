@@ -1,8 +1,8 @@
 import pytest
 
 from jack.adapters.hardware.pca9685 import Pca9685
-from jack.show.motion.ramp import PWM_MAX_COUNT
 from jack.adapters.hardware.tb6612_motor import MOTOR_A, MOTOR_B, MOTOR_CHANNELS, MotorChannels, Tb6612Motor
+from jack.show.motion.ramp import PWM_MAX_COUNT
 from tests.fakes import RecordingBus, off_count
 
 ADDRESS = 0x40
@@ -30,8 +30,8 @@ def make_motor(channels, reverse=False):
 
 
 def test_channel_mapping_matches_waveshare_sample_code():
-    assert MOTOR_A == MotorChannels(pwm=0, in1=1, in2=2)
-    assert MOTOR_B == MotorChannels(pwm=5, in1=3, in2=4)
+    assert MotorChannels(pwm=0, in1=1, in2=2) == MOTOR_A
+    assert MotorChannels(pwm=5, in1=3, in2=4) == MOTOR_B
 
 
 @pytest.mark.parametrize("channels", [MOTOR_A, MOTOR_B])

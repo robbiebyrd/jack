@@ -28,9 +28,8 @@ class TalkSettings:
                 raise ValueError(f"{name} must be positive, got {getattr(self, name)}")
         if self.mouth_lead_ms < 0:
             raise ValueError(f"mouth_lead_ms must not be negative, got {self.mouth_lead_ms}")
-        # Each property below raises ValueError for a duration that isn't whole ticks.
-        self.mouth_lead_ticks
-        self.max_backlog_frames
+        # Both properties raise ValueError for a duration that isn't whole ticks.
+        _ = (self.mouth_lead_ticks, self.max_backlog_frames)
 
     @property
     def mouth_lead_ticks(self) -> int:

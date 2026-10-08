@@ -3,8 +3,9 @@
 Routes (an OSC address below /jack, or an HTTP path): /<motor> value; /<motor>/pose name [seconds];
 /<motor>/rest; /rest; /mouth/mode live|show. See "OSC" and "HTTP" in SPEC.md.
 OSC alone also answers /ping, /status, and takes /subscribe [port], /unsubscribe [port]; see "OSC replies and feedback".
-TouchOSC forms (OSC only; see "TouchOSC support"): ports may be whole-number floats; /rest, /<motor>/rest, /ping, /status
-and /<motor>/pose/<name> are buttons (a press or no argument acts, a release of 0 is ignored, NaN or infinity is a 400);
+TouchOSC forms (OSC only; see "TouchOSC support"): ports may be whole-number floats; /rest, /<motor>/rest, /ping,
+/status and /<motor>/pose/<name> are buttons (a press or no argument acts, a release of 0 is ignored, NaN or infinity
+is a 400);
 /subscribe and /unsubscribe ignore a release of 0 too, and their ports are 1024-65535; /mouth/mode and
 /mouth/mode/show take a number, non-zero for show and 0 for live.
 """
@@ -14,8 +15,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from jack.show.control.control_board import MOUTH_MODES, ControlBoard
-from jack.show.motion.motors import MOTOR_NAMES, motor_spec
 from jack.show.control.osc_feedback import MAX_SUBSCRIBERS, Destination, Message, Subscribers, state_messages
+from jack.show.motion.motors import MOTOR_NAMES, motor_spec
 from jack.show.motion.poses import MotorProfile
 from jack.support.rate_limited_log import RateLimitedLog
 
@@ -115,7 +116,7 @@ def osc_command(
         return None if _is_release(route, args) else _query(route, args)
     names = _argument_names(parts)
     # Build first, so an unknown address is a 404 even when it carries arguments.
-    command = _build(route, dict(zip(names, args)), profiles)
+    command = _build(route, dict(zip(names, args, strict=False)), profiles)
     if len(args) > len(names):
         raise CommandError(f"too many arguments for {address}")
     return command
@@ -205,7 +206,9 @@ def _is_button_route(route: str, parts: list[str]) -> bool:
     """Routes a TouchOSC button can drive: they take no arguments of their own."""
     if route in ("/rest", "/ping", "/status"):
         return True
-    return bool(parts) and parts[0] in MOTOR_NAMES and (parts[1:] == ["rest"] or (len(parts) == 3 and parts[1] == "pose"))
+    if not parts or parts[0] not in MOTOR_NAMES:
+        return False
+    return parts[1:] == ["rest"] or (len(parts) == 3 and parts[1] == "pose")
 
 
 def _pressed(args: Sequence[object]) -> bool:

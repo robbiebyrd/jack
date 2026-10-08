@@ -3,14 +3,13 @@ import threading
 import time
 
 import pytest
-
 from pythonosc.osc_bundle_builder import OscBundleBuilder
 from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 from pythonosc.udp_client import SimpleUDPClient
 
-from jack.show.control.osc_feedback import Subscribers, state_messages
 from jack.adapters.network.osc_server import OscEndpoint, start_feedback
+from jack.show.control.osc_feedback import Subscribers, state_messages
 
 
 def serve(on_message=None):
@@ -18,10 +17,7 @@ def serve(on_message=None):
     arrived = threading.Event()
 
     def handle(address, args, sender):
-        if on_message:
-            result = on_message(address, args)
-        else:
-            result = None
+        result = on_message(address, args) if on_message else None
         received.append((address, args, sender))
         arrived.set()
         return result
@@ -254,7 +250,9 @@ def test_an_unexpected_error_in_a_feedback_cycle_is_logged_and_feedback_continue
         return snapshot
 
     subs.subscribe(client.getsockname())
-    stop_feedback = start_feedback(endpoint, subs, status, lambda key, message: logged.append((key, message)), interval_s=0.01)
+    stop_feedback = start_feedback(
+        endpoint, subs, status, lambda key, message: logged.append((key, message)), interval_s=0.01
+    )
     try:
         got = recv_messages(client, len(state_messages(snapshot)))
         assert got == [(address, args) for address, args in state_messages(snapshot)]

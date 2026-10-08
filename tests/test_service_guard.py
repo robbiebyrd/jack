@@ -2,7 +2,13 @@ import os
 
 import pytest
 
-from jack.adapters.system.service_guard import APP_CONFIG_DIR, APP_SERVICE, STOP_APP_FIRST, app_is_running, tool_error_message
+from jack.adapters.system.service_guard import (
+    APP_CONFIG_DIR,
+    APP_SERVICE,
+    STOP_APP_FIRST,
+    app_is_running,
+    tool_error_message,
+)
 
 
 @pytest.fixture

@@ -1,4 +1,7 @@
+import os
 from types import SimpleNamespace
+
+import pytest
 
 import lipsync_wav
 from jack.show.audio.talk_settings import TalkSettings
@@ -61,6 +64,7 @@ def test_runs_on_for_the_tail_after_the_wav_ends():
     assert [until(), until(), until()] == [False, False, True]
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read any file, so the config can't be unreadable")
 def test_unreadable_app_config_says_to_run_as_jack(monkeypatch, capsys, unreadable_app_config):
     monkeypatch.setattr(lipsync_wav, "app_is_running", lambda: False)
     monkeypatch.setattr(lipsync_wav, "POSES_PATHS", (lipsync_wav.POSES_PATHS[0], unreadable_app_config))

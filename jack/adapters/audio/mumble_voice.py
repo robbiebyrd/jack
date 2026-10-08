@@ -5,10 +5,17 @@ FrameQueue so the talk loop can take one frame per talker per tick and mix them.
 """
 
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from typing import Protocol
 
 from jack.show.audio.frame_queue import FrameQueue
 from jack.show.audio.pcm import TICK_S
+
+
+class SoundChunk(Protocol):
+    """The part of pymumble's SoundChunk the voice reads."""
+
+    pcm: bytes
 
 
 class MumbleVoice:
@@ -19,7 +26,7 @@ class MumbleVoice:
         self._lock = threading.Lock()
         self.connected = False
 
-    def on_sound(self, user, chunk) -> None:
+    def on_sound(self, user: Mapping[str, object], chunk: SoundChunk) -> None:
         """pymumble's sound-received callback; runs on pymumble's thread."""
         with self._lock:
             queue = self._queues.setdefault(user["session"], FrameQueue(self._max_backlog_frames))
@@ -41,8 +48,8 @@ class MumbleVoice:
         return [frame for frame in (queue.take() for queue in queues) if frame is not None]
 
 
-def connect_mumble(voice: MumbleVoice, host: str, port: int, user: str, password: str):
-    """Start a pymumble bot that feeds `voice` and reconnects on its own; returns the client."""
+def connect_mumble(voice: MumbleVoice, host: str, port: int, user: str, password: str) -> threading.Thread:
+    """Start a pymumble bot that feeds `voice` and reconnects on its own; returns the client (its thread)."""
     import pymumble_py3 as pymumble  # Only in the Pi's venv; tests drive MumbleVoice directly.
     from pymumble_py3.constants import (
         PYMUMBLE_CLBK_CONNECTED,

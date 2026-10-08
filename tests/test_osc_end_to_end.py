@@ -6,11 +6,11 @@ import time
 from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 
+from jack.adapters.network.osc_server import OscEndpoint, start_feedback
 from jack.show.control.control_board import ControlBoard
 from jack.show.control.osc_feedback import Subscribers, state_messages
-from jack.adapters.network.osc_server import OscEndpoint, start_feedback
-from jack.support.rate_limited_log import RateLimitedLog
 from jack.show.control.show_commands import OscContext, handle_osc
+from jack.support.rate_limited_log import RateLimitedLog
 from tests.profiles import PROFILES
 
 
@@ -38,7 +38,9 @@ def test_ping_is_answered_from_the_osc_port_and_subscribers_get_the_full_state()
         mumble_connected=lambda: True, reply_port=None, log=RateLimitedLog(lines.append, 60.0, time.monotonic),
     )
     endpoint.serve(lambda address, args, sender: handle_osc(address, args, sender, context))
-    stop_feedback = start_feedback(endpoint, subscribers, lambda: board.status(True), lambda key, line: lines.append(line))
+    stop_feedback = start_feedback(
+        endpoint, subscribers, lambda: board.status(True), lambda key, line: lines.append(line)
+    )
     controller, listener = udp_socket(), udp_socket()
     osc_address = ("127.0.0.1", endpoint.server_address[1])
     try:

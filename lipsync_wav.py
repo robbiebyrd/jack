@@ -15,16 +15,16 @@ from collections.abc import Callable
 
 from smbus2 import SMBus
 
-from main import ALSA_DEVICE, ALSA_PERIODS, DEFAULT_CONTROL_TIMEOUT_S, I2C_BUS, POSES_PATHS, SUPPLY_VOLTS, build_motors
 from jack.adapters.audio.alsa_sink import open_alsa_sink
-from jack.show.audio.lip_sync import check_mouth_gain
-from jack.show.control.control_board import ControlBoard
-from jack.show.audio.pcm import TICKS_PER_SECOND
-from jack.show.motion.poses import load_profiles
+from jack.adapters.audio.wav_source import WavSource
 from jack.adapters.system.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
 from jack.application.talk_loop import run_talk_loop
+from jack.show.audio.lip_sync import check_mouth_gain
+from jack.show.audio.pcm import TICKS_PER_SECOND
 from jack.show.audio.talk_settings import TalkSettings
-from jack.adapters.audio.wav_source import WavSource
+from jack.show.control.control_board import ControlBoard
+from jack.show.motion.poses import load_profiles
+from main import ALSA_DEVICE, ALSA_PERIODS, DEFAULT_CONTROL_TIMEOUT_S, I2C_BUS, POSES_PATHS, SUPPLY_VOLTS, build_motors
 
 # Keep running this long after the WAV ends so the mouth closes before the motors brake.
 TAIL_TICKS = TICKS_PER_SECOND
@@ -44,7 +44,7 @@ def settings_from_args(args: argparse.Namespace) -> TalkSettings:
     return TalkSettings(**{field.name: getattr(args, field.name) for field in dataclasses.fields(TalkSettings)})
 
 
-def after_tail(source, tail_ticks: int) -> Callable[[], bool]:
+def after_tail(source: WavSource, tail_ticks: int) -> Callable[[], bool]:
     """An `until` check for the talk loop: true once `tail_ticks` ticks have run after the source finished."""
     remaining = tail_ticks
 

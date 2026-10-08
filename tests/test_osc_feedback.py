@@ -6,7 +6,9 @@ B = ("10.10.0.30", 9001)
 
 
 def status(hand_volts=0.0, tripped=False, mode="live", mumble=True, hand_command=None):
-    motors = {name: {"volts": 0.0, "max_hold_tripped": False, "command": None} for name in ("mouth", "hand", "pivot", "elbow")}
+    motors = {
+        name: {"volts": 0.0, "max_hold_tripped": False, "command": None} for name in ("mouth", "hand", "pivot", "elbow")
+    }
     motors["hand"] = {"volts": hand_volts, "max_hold_tripped": tripped, "command": hand_command}
     return {"mouth_mode": mode, "mumble_connected": mumble, "motors": motors}
 

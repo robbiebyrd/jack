@@ -5,11 +5,23 @@ import pytest
 
 from jack.show.control.control_board import ControlBoard
 from jack.show.control.osc_feedback import MAX_SUBSCRIBERS, Subscribers, state_messages
-from jack.support.rate_limited_log import RateLimitedLog
 from jack.show.control.show_commands import (
-    CommandError, OscContext, Ping, RestCommand, SetMouthMode, SetValue, StartPose, StatusRequest, Subscribe, Unsubscribe,
-    apply, handle_osc, http_command, osc_command,
+    CommandError,
+    OscContext,
+    Ping,
+    RestCommand,
+    SetMouthMode,
+    SetValue,
+    StartPose,
+    StatusRequest,
+    Subscribe,
+    Unsubscribe,
+    apply,
+    handle_osc,
+    http_command,
+    osc_command,
 )
+from jack.support.rate_limited_log import RateLimitedLog
 from tests.fakes import FakeClock
 from tests.profiles import PROFILES
 
@@ -113,7 +125,8 @@ SENDER = ("10.10.0.22", 9000)
 def osc_context(board, lines, clock, reply_port=None):
     sent = []
     context = OscContext(
-        profiles=PROFILES, board=board, subscribers=Subscribers(clock), send=lambda dest, msgs: sent.append((dest, msgs)),
+        profiles=PROFILES, board=board, subscribers=Subscribers(clock),
+        send=lambda dest, msgs: sent.append((dest, msgs)),
         mumble_connected=lambda: True, reply_port=reply_port, log=RateLimitedLog(lines.append, 60.0, clock),
     )
     return context, sent
@@ -355,13 +368,17 @@ def test_button_presses_act(address, command, press):
     assert osc_command(address, press, PROFILES) == command
 
 
-@pytest.mark.parametrize("address", ["/jack/rest", "/jack/hand/rest", "/jack/ping", "/jack/status", "/jack/elbow/pose/up"])
+@pytest.mark.parametrize(
+    "address", ["/jack/rest", "/jack/hand/rest", "/jack/ping", "/jack/status", "/jack/elbow/pose/up"]
+)
 @pytest.mark.parametrize("release", [[0], [0.0], [False]])
 def test_button_releases_are_ignored(address, release):
     assert osc_command(address, release, PROFILES) is None
 
 
-@pytest.mark.parametrize("address, args", [("/jack/rest", ["go"]), ("/jack/rest", [1, 1]), ("/jack/elbow/pose/up", ["x"])])
+@pytest.mark.parametrize(
+    "address, args", [("/jack/rest", ["go"]), ("/jack/rest", [1, 1]), ("/jack/elbow/pose/up", ["x"])]
+)
 def test_bad_button_arguments_are_400(address, args):
     with pytest.raises(CommandError) as error:
         osc_command(address, args, PROFILES)
@@ -375,7 +392,9 @@ def test_unknown_pose_address_is_404():
 
 
 @pytest.mark.parametrize("address", ["/jack/mouth/mode", "/jack/mouth/mode/show"])
-@pytest.mark.parametrize("value, mode", [(1, "show"), (1.0, "show"), (True, "show"), (0, "live"), (0.0, "live"), (False, "live")])
+@pytest.mark.parametrize(
+    "value, mode", [(1, "show"), (1.0, "show"), (True, "show"), (0, "live"), (0.0, "live"), (False, "live")]
+)
 def test_numeric_mouth_mode(address, value, mode):
     assert osc_command(address, [value], PROFILES) == SetMouthMode(mode)
 

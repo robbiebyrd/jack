@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 import calibrate
@@ -24,6 +26,7 @@ def test_invalid_poses_file_is_reported_before_touching_hardware(monkeypatch, ca
     assert "99" in capsys.readouterr().err
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can read any file, so the config can't be unreadable")
 def test_unreadable_app_config_says_to_run_as_jack(monkeypatch, capsys, unreadable_app_config):
     monkeypatch.setattr(calibrate, "app_is_running", lambda: False)
     monkeypatch.setattr(calibrate, "POSES_PATHS", (calibrate.POSES_PATHS[0], unreadable_app_config))

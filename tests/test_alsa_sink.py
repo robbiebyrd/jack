@@ -55,7 +55,7 @@ def test_repeated_underruns_log_the_first_and_every_hundredth():
     sink, log = make_sink(pcm)
     for _ in range(200):
         sink.write(constant_frame(0))
-    assert log == ["Audio underrun #1; carrying on", "Audio underrun #100; carrying on", "Audio underrun #200; carrying on"]
+    assert log == [f"Audio underrun #{n}; carrying on" for n in (1, 100, 200)]
 
 
 def test_other_device_errors_propagate():

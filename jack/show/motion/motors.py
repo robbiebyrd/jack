@@ -12,7 +12,7 @@ class MotorSpec:
     name: str
     address: int
     channel: str
-    # True when commands run −1…1 (pivot: left…right; hand: open…curled) instead of 0…1.
+    # True when commands run -1…1 (pivot: left…right; hand: open…curled) instead of 0…1.
     two_sided: bool
 
 

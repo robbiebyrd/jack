@@ -8,16 +8,16 @@ every other motor follows the show-control board. See "Talk loop" in SPEC.md.
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 
-from jack.support.attempt_all import attempt_all
-from jack.show.control.control_board import ControlBoard
+from jack.application.ports import AudioSink, MotorOutput, VoiceSource
 from jack.show.audio.envelope import EnvelopeFollower, rms_dbfs
 from jack.show.audio.lip_sync import MouthController
-from jack.show.motion.motor_driver import Drive, MotorDriver, Rest
 from jack.show.audio.pcm import TICK_S, TICKS_PER_SECOND, mix, silence
-from jack.application.ports import AudioSink, MotorOutput, VoiceSource
+from jack.show.audio.talk_settings import TalkSettings
+from jack.show.control.control_board import ControlBoard
+from jack.show.motion.motor_driver import Drive, MotorDriver, Rest
 from jack.show.motion.poses import MotorProfile
 from jack.show.motion.ramp import volts_to_count
-from jack.show.audio.talk_settings import TalkSettings
+from jack.support.attempt_all import attempt_all
 
 
 def run_talk_loop(
@@ -45,7 +45,7 @@ def run_talk_loop(
     envelope = EnvelopeFollower(settings.attack_s, settings.release_s, TICK_S)
     lip_sync = MouthController(settings, profiles["mouth"])
     drivers = {name: MotorDriver(profiles[name]) for name in motors}
-    applied: dict[str, Drive | None] = {name: None for name in motors}
+    applied: dict[str, Drive | None] = dict.fromkeys(motors)
     delayed_audio = deque(silence() for _ in range(settings.mouth_lead_ticks))
     mouth_mode = board.mouth_mode
     ticks = 0
