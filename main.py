@@ -1,10 +1,14 @@
-"""Jack talks and takes show control: Boss's voice from ROC or Mumble plays on the 3.5 mm jack; the mouth follows it (live) or show commands (show); hand, pivot and elbow follow OSC/HTTP show commands."""
+"""Jack talks and takes show control.
+
+Boss's voice from ROC or Mumble plays on the 3.5 mm jack; the mouth follows it (live) or show commands
+(show); hand, pivot and elbow follow OSC/HTTP show commands.
+"""
 
 import dataclasses
 import math
 import os
-import random
 import signal
+import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -15,26 +19,23 @@ from typing import NoReturn
 from smbus2 import SMBus
 
 from jack.adapters.audio.alsa_sink import open_alsa_sink
-from jack.support.attempt_all import attempt_all
-from jack.show.control.control_board import MOUTH_MODES, ControlBoard
-from jack.adapters.network.http_server import start_http_server
-from jack.show.motion.motors import MOTORS
-from jack.show.motion.mouth import CLOSE, RELAX, STEP_S, Segment, open_fully, rest
 from jack.adapters.audio.mumble_voice import MumbleVoice, connect_mumble
 from jack.adapters.audio.roc_voice import RocVoice, roc_recv_command
-from jack.show.audio.lip_sync import check_mouth_gain
-from jack.show.control.osc_feedback import Subscribers
+from jack.adapters.hardware.pca9685 import I2CBus, Pca9685
+from jack.adapters.hardware.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
+from jack.adapters.network.http_server import start_http_server
 from jack.adapters.network.osc_server import OscEndpoint, start_feedback
-from jack.adapters.hardware.pca9685 import Pca9685
-from jack.show.motion.poses import MotorProfile, load_profiles
-from jack.show.motion.ramp import constant_profile, segment_profile
-from jack.support.rate_limited_log import RateLimitedLog
-from jack.show.control.show_commands import OscContext, handle_osc
-from jack.show.motion.speech import random_phrase
 from jack.adapters.system.systemd_notify import notify
 from jack.application.talk_loop import run_talk_loop
+from jack.show.audio.lip_sync import check_mouth_gain
 from jack.show.audio.talk_settings import TalkSettings
-from jack.adapters.hardware.tb6612_motor import MOTOR_CHANNELS, Tb6612Motor
+from jack.show.control.control_board import MOUTH_MODES, ControlBoard
+from jack.show.control.osc_feedback import Subscribers
+from jack.show.control.show_commands import OscContext, handle_osc
+from jack.show.motion.motors import MOTORS
+from jack.show.motion.poses import MotorProfile, load_profiles
+from jack.support.attempt_all import attempt_all
+from jack.support.rate_limited_log import RateLimitedLog
 
 I2C_BUS = 1
 PWM_FREQ_HZ = 50
@@ -76,11 +77,9 @@ DEFAULT_ROC_CONTROL_PORT = 10003
 DEFAULT_ROC_TARGET_LATENCY_MS = 100.0
 # One log line per kind of bad OSC message per minute.
 OSC_LOG_INTERVAL_S = 60.0
-# Fixed pose tour: an alternative to speaking, e.g. for checking the mechanism.
-MOUTH_DEMO = (*CLOSE, *rest(1.5), *RELAX, *rest(1.5), *open_fully(0.5))
 
 
-def exit_on_sigterm(signum: int, frame: FrameType | None) -> NoReturn:
+def exit_on_sigterm(_signum: int, _frame: FrameType | None) -> NoReturn:
     """Turn SIGTERM into SystemExit so the playback loop's cleanup brakes the motors."""
     raise SystemExit(0)
 
@@ -90,7 +89,7 @@ def ping_watchdog() -> None:
     notify("WATCHDOG=1")
 
 
-def watchdog_noting_mumble(mumble_client, log: Callable[[str], None]) -> Callable[[], None]:
+def watchdog_noting_mumble(mumble_client: threading.Thread, log: Callable[[str], None]) -> Callable[[], None]:
     """The talk loop's once-a-second callback: ping the watchdog, and log once if Mumble's client thread died.
 
     pymumble's thread ends for good when the server rejects the login. Jack keeps running on ROC; a
@@ -108,21 +107,6 @@ def watchdog_noting_mumble(mumble_client, log: Callable[[str], None]) -> Callabl
     return check
 
 
-def speaking_cycle(rng: random.Random) -> list[list[int]]:
-    """One random talking phrase on the mouth, with motor B off. Counts are [motor A, motor B]."""
-    return _mouth_only(random_phrase(rng))
-
-
-def demo_cycle() -> list[list[int]]:
-    """MOUTH_DEMO on the mouth, with motor B off. Counts are [motor A, motor B]."""
-    return _mouth_only(MOUTH_DEMO)
-
-
-def _mouth_only(segments: tuple[Segment, ...]) -> list[list[int]]:
-    mouth = segment_profile(segments, SUPPLY_VOLTS, STEP_S)
-    return [mouth, constant_profile(0.0, SUPPLY_VOLTS, len(mouth))]
-
-
 def mumble_password(environ: Mapping[str, str] = os.environ) -> str:
     """The Mumble server password, which systemd loads from /etc/jack/jack.env."""
     password = environ.get(MUMBLE_PASSWORD_ENV, "")
@@ -135,7 +119,10 @@ def mumble_password(environ: Mapping[str, str] = os.environ) -> str:
 
 
 def talk_settings(environ: Mapping[str, str] = os.environ) -> TalkSettings:
-    """TalkSettings defaults, with any JACK_<FIELD> environment variable (e.g. JACK_MOUTH_GAIN_DB=20) overriding that field."""
+    """TalkSettings defaults, with any JACK_<FIELD> environment variable overriding that field.
+
+    For example JACK_MOUTH_GAIN_DB=20.
+    """
     for field, key in MOVED_TO_POSES.items():
         var = SETTING_ENV_PREFIX + field.upper()
         if environ.get(var):
@@ -273,7 +260,7 @@ def _env_port(environ: Mapping[str, str], var: str, default: int | None) -> int 
     return int(value)
 
 
-def build_motors(bus) -> dict[str, Tb6612Motor]:
+def build_motors(bus: I2CBus) -> dict[str, Tb6612Motor]:
     """Every motor on its HAT and channel, braked as soon as its HAT is up.
 
     A crash without cleanup can leave a HAT driving at its last duty, so each HAT's motors are
@@ -303,7 +290,7 @@ def main() -> None:
     config = show_control_config()
     roc = roc_config()
     if overrides := describe_overrides(settings):
-        print(f"Mouth setting overrides: {overrides}")
+        print(f"Mouth setting overrides: {overrides}")  # noqa: T201
     board = ControlBoard(profiles, config.timeout_s, config.mouth_mode, time.monotonic)
     voice = MumbleVoice(settings.max_backlog_frames, print)
     mumble_client = connect_mumble(voice, MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, mumble_password())
@@ -324,7 +311,7 @@ def main() -> None:
             start_http_server("0.0.0.0", config.http_port, board, profiles, lambda: voice.connected)
             reply_target = config.reply_port or "sender's port"
             uncalibrated = [name for name, profile in profiles.items() if not profile.calibrated]
-            print(
+            print(  # noqa: T201
                 f"Talking: ROC (UDP {roc.source_port}/{roc.repair_port}/{roc.control_port}, "
                 f"{roc.target_latency_ms:g} ms) and Mumble voice on {ALSA_DEVICE}; "
                 f"motors {', '.join(motors)} on {SUPPLY_VOLTS} V; "

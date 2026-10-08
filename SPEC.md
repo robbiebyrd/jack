@@ -61,17 +61,13 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
   1.5.735-5+deb13u1, `python3-alsaaudio` 0.10.0, `python3-opuslib` 3.0.1,
   `python3-protobuf` 3.21.12. `pymumble` is not packaged.
 
-## Smoke test behavior (`main.py`)
+## Mouth calibration history
 
-Purpose: find which voltages move the animatronic head's mouth (driven by
-motor A) and how. The talk loop (see "Talking") replaces this demo in
-`main.py`; the calibration table below stays the basis for its settings. The
-numbered behaviour below is that retired demo, kept for `speaking_cycle` and
-`demo_cycle`, which `main.py` still defines.
+Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28), on channel B, before the
+mouth moved to channel A (2026-10-02). Since the move its signs are reversed: positive opens
+and negative closes. The current values live in `poses.toml` ("Poses and per-motor settings").
 
-Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
-
-| Pose | How to reach it | Held without power? |
+| Pose | How to reach it (2026-09-28 signs) | Held without power? |
 |---|---|---|
 | Closed | +1 V for 0.25 s closes it from any pose; +0.5 V is enough from relaxed open | yes |
 | Relaxed open | apply −2 V, then release: the mouth settles here | yes |
@@ -80,35 +76,10 @@ Mouth calibration, measured by Boss with `calibrate.py` (2026-09-28):
 Holding a voltage keeps the motor running against resistance (stalled), so
 prefer the closed and relaxed-open poses and keep fully open short.
 
-Since the mouth moved to channel A (2026-10-02) its signs are reversed:
-positive opens and negative closes (see "Poses and per-motor settings").
-The retired demo's segments (`jack/show/motion/mouth.py`, `jack/show/motion/speech.py`)
-still use the old signs.
-
-1. Drive both motor channels in lockstep in 50 ms steps. Each motor has
-   its own signed profile; positive means forward (IN1 = 0, IN2 = 1, so
-   terminal 1 is positive), negative means backward (IN1 = 1, IN2 = 0).
-2. **Motor A (the mouth)** imitates speaking until control inputs (audio,
-   DMX, websockets) are wired in. Each cycle plays a fresh random phrase from
-   `jack/show/motion/speech.py`, at most 4.5 s long:
-   - 1–4 words of 1–3 syllables; 0.05–0.15 s between syllables, 0.1–0.3 s
-     between words, and a 0.5–1.5 s pause after the phrase.
-   - A syllable opens part way with −2 V for 0.15–0.4 s, then closes with
-     +0.5 V for 0.15 s (the gentle close that works from relaxed open).
-   - About 1 in 8 syllables is emphasised: a ramped full open (hold
-     0.15–0.3 s), then +1 V for 0.25 s.
-   - Every phrase ends closed. Durations are whole 50 ms steps.
-   `MOUTH_DEMO` (close, rest 1.5 s, relax, rest 1.5 s, ramped full open for
-   0.5 s; 4.5 s) remains available through `main.demo_cycle()` for checking
-   the mechanism.
-3. **Motor B** held 0 V for the whole cycle. Now motor B is the hand: it
-   follows show control and rests when uncommanded (the demo functions
-   still keep it at 0 V).
-4. Repeat the cycle back-to-back, with no pause, until the process is
-   stopped.
-5. On SIGTERM or any exception, **short-brake** every motor before exiting:
-   duty 0, then IN1 = IN2 = high (the TB6612FNG shorts the motor leads).
-   A failure braking one motor must not prevent braking the other.
+The demo that played these poses before the talk loop existed (`MOUTH_DEMO`, `speaking_cycle`
+and `demo_cycle` in `main.py`, `speech.py`, `smoke_test.py`, the triangle and square profiles in
+`ramp.py`) was retired on 2026-10-08. Tag `pre-show-control-demo` holds the last commit with it
+working; `docs/archive/retired-demo/` keeps the modules as a record.
 
 ## Calibration tool (`calibrate.py`)
 
@@ -715,9 +686,9 @@ hexagonal layer, then by function:
 jack/
   show/                 pure logic: no hardware, network, sound card or systemd
     audio/      pcm, envelope, frame_queue, lip_sync, talk_settings
-    motion/     motors, poses, motor_driver, stall_budget, ramp, mouth, speech
+    motion/     motors, poses, motor_driver, stall_budget, ramp, segments
     control/    control_board, show_commands, osc_feedback
-  application/  ports, talk_loop, calibration, smoke_test
+  application/  ports, talk_loop, calibration
   adapters/
     hardware/   pca9685, tb6612_motor
     audio/      alsa_sink, mumble_voice, wav_source
@@ -763,23 +734,17 @@ support them:
   flood of bad OSC messages stays one journal line per kind per minute.
 
 - `jack/show/motion/ramp.py` (domain, pure): waveforms as signed 12-bit duty
-  counts (negative = backward). `ramp_profile(peak_volts, supply_volts,
-  steps)` is one cycle of a 0 → peak → 0 triangle that starts at 0, peaks
-  at `steps // 2`, and omits the closing 0 so cycles chain seamlessly.
-  `square_profile(high_volts, low_volts, supply_volts, steps)` holds
-  `high_volts` for the first half and `low_volts` for the second.
-  `constant_profile(volts, supply_volts, steps)` holds `volts` throughout.
-  `segment_profile(segments, supply_volts, step_s)` plays each
-  `(start_volts, end_volts, seconds)` segment in order: a hold when start
-  equals end, otherwise a linear ramp that reaches `end_volts` on its last
-  step. It rejects durations that are not a whole number of steps. All raise `ValueError` for a non-positive supply, a voltage outside the
-  supply range, or an odd or too-small step count. Magnitudes cap at 4095
-  (4096 would set the PCA9685 full-off bit).
-- `jack/show/motion/mouth.py` (domain, pure): the calibrated mouth poses as
-  `(start_volts, end_volts, seconds)` segments built with `hold()` and
-  `ramp()`: `CLOSE`, `RELAX`, `open_fully(seconds)` (ramps over
-  `OPEN_RAMP_S` = 0.25 s, then holds) and `rest(seconds)`, plus
-  `describe()` for log lines.
+  counts (negative = backward). `segment_profile(segments, supply_volts,
+  step_s)` plays each `(start_volts, end_volts, seconds)` segment in order: a
+  hold when start equals end, otherwise a linear ramp that reaches
+  `end_volts` on its last step. It raises `ValueError` for a non-positive
+  supply, a voltage outside the supply range, or a duration that is not a
+  whole number of steps. `volts_to_count` caps magnitudes at 4095 (4096
+  would set the PCA9685 full-off bit); `whole_steps` counts the steps in a
+  duration.
+- `jack/show/motion/segments.py` (domain, pure): the `(start_volts,
+  end_volts, seconds)` `Segment` the calibration tool plays, built with
+  `hold()` and `ramp()`, `STEP_S` (50 ms), and `describe()` for log lines.
 - `jack/application/ports.py`: the `MotorOutput` protocol, with
   `drive(count)` (signed) and `stop()`.
 - `jack/adapters/hardware/pca9685.py` (adapter): `Pca9685(bus, address, pwm_freq_hz)`,
@@ -803,17 +768,6 @@ support them:
 - `jack/support/attempt_all.py`: `attempt_all(actions)` runs every action
   even if an earlier one raises, then re-raises the first failure. Used
   wherever braking must not be skipped.
-- `jack/show/motion/speech.py` (domain): `random_phrase(rng)` builds one
-  talking phrase from the calibrated poses (see "Smoke test behavior");
-  pass a seeded `random.Random` for repeatable output.
-- `jack/application/smoke_test.py` (application): `run_generated_loop(motors,
-  next_cycle, step_s, sleep, on_cycle)` asks `next_cycle()` for one count
-  list per motor each cycle and plays them in lockstep: step i drives
-  every motor with its i-th count, then waits `step_s`. It repeats forever,
-  calls `on_cycle()` after each completed cycle, and always stops every
-  motor when the loop exits (exception, unplayable cycle or SIGTERM), even
-  if stopping one fails. `run_profiles_loop(profiles, ...)` is the
-  fixed-profile form, checked before any motor is touched.
 - `jack/adapters/system/systemd_notify.py` (adapter): `notify(message)` sends one
   sd_notify datagram to `$NOTIFY_SOCKET` using only the standard library.
   It does nothing when `NOTIFY_SOCKET` is unset (running by hand), and
@@ -868,32 +822,15 @@ support them:
   ALSA sink, starts the OSC (UDP) and HTTP (TCP) servers on `0.0.0.0`, sends
   `READY=1`, and runs the talk loop with `on_second`
   the Mumble-aware watchdog callback (`WATCHDOG=1` while the bot's thread
-  lives, `SystemExit` once it has died). `run_profiles_loop` and
-  `MOUTH_DEMO` are no longer used by `main.py`; they stay in the repo
-  (Boss, 2026-09-28).
-- `speaking_cycle(rng)` and `demo_cycle()` remain in `main.py` (Boss, 2026-09-28) for showing the mechanism without audio; `main()` no longer uses them.
+  lives, `SystemExit` once it has died).
 
 ## Testing
 
 - pytest, run on the dev Mac (no hardware needed) for the domain and
   application layers:
-  - Ramp starts at 0, peaks at 2048 for 6 V/12 V at index `steps // 2`,
-    is symmetric, and has the requested number of steps. A full-supply
-    peak caps at 4095. Square is +1024 for the first half and −1024 for
-    the second for ±3 V/12 V, and caps at ±4095. Constant −6 V/12 V is
-    −2048 at every step. The −6/−3/0 V holds at 50 ms steps are 10, 20
-    and 40 steps, and a 0 → −6 V ramp over 0.25 s is −410, −819, −1229,
-    −1638, −2048.
-  - Invalid inputs raise `ValueError`.
-  - `run_profiles_loop` drives each motor with its own profile in
-    lockstep, repeats the cycle, stops every motor when interrupted
-    (even if one stop fails), and rejects empty or mismatched profiles
-    (the test's `sleep` raises after N steps to end the loop). This uses a
-    recording fake `MotorOutput`, which checks our sequencing, not a
-    mock's behavior.
-  - `run_profiles_loop` calls `on_cycle` exactly once per completed cycle.
-  - `run_generated_loop` plays fresh counts each cycle, pings after each,
-    and brakes every motor on an unplayable cycle.
+  - `segment_profile`: the −6/−3/0 V holds at 50 ms steps are 10, 20 and
+    40 steps, and a 0 → −6 V ramp over 0.25 s is −410, −819, −1229, −1638,
+    −2048. A full-supply count caps at 4095. Invalid inputs raise `ValueError`.
   - `notify` delivers the exact message to a real Unix datagram socket,
     does nothing without `NOTIFY_SOCKET`, and maps `@name` to an abstract
     address.
@@ -907,17 +844,6 @@ support them:
     right PWM channel for A and B, direction pins rewritten only on a
     direction change, and short brake (duty zeroed before IN1 = IN2 = high,
     still attempted if zeroing fails).
-  - `main.demo_cycle` holds motor B at 0 V (the retired demo; in the app
-    motor B is the hand, driven by show control) and plays the mouth demo
-    (+341 ×5, 0 ×30, −683 ×10, 0 ×30, the 5-step ramp, −2048 ×10) over a
-    4.5 s cycle, inside the 10 s watchdog with two cycles to spare.
-  - `main.speaking_cycle` plays `random_phrase` on the mouth with motor B
-    at 0 V, and consecutive cycles differ.
-  - `random_phrase`, over 200 seeds: fits in 4.5 s, whole 50 ms steps,
-    voltages within −6…+1 V, every opening ended by a close, ends closed
-    then pauses, repeatable per seed, varied across seeds, and emphasis
-    stays occasional.
-  - The mouth poses match the calibration table.
   - Envelope: digital silence reads −90 dBFS, a full-scale sine reads
     about −3.01 dBFS, and a step input rises with `ATTACK_S` and falls
     with `RELEASE_S`.
@@ -938,8 +864,10 @@ support them:
     motors braked on an exception.
   - `jack.service` runs the venv's Python and loads `/etc/jack/jack.env`;
     `jack-update.sh` re-runs pip only when `requirements-pi.txt` changed.
-- Dependencies for tests: `requirements-dev.txt` pins `pytest==9.1.1`,
-  `smbus2==0.4.3` and `python-osc==1.10.2`.
+- Dependencies for tests: `requirements-dev.txt` pins `pytest`, `ruff`,
+  `smbus2`, `python-osc` and `py2tosc`. `ruff check .` (configured in
+  `pyproject.toml`) and the tests run on every push in GitHub Actions
+  (`.github/workflows/ci.yml`), on Python 3.11 and 3.13.
 - The adapters are verified on real hardware: after install, watch
   `journalctl -u jack` and measure across MA1/MA2 and MB1/MB2 with a
   meter.

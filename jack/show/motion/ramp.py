@@ -11,43 +11,7 @@ PWM_RESOLUTION = 4096
 PWM_MAX_COUNT = PWM_RESOLUTION - 1
 
 
-def ramp_profile(peak_volts: float, supply_volts: float, steps: int) -> list[int]:
-    """Return one cycle of a 0 -> peak -> 0 triangle ramp as duty counts.
-
-    The cycle starts at 0 and peaks at index steps // 2. It omits the closing 0
-    so cycles can be played back-to-back without repeating a sample.
-    """
-    _check_cycle(supply_volts, steps)
-    if not 0 <= peak_volts <= supply_volts:
-        raise ValueError(f"peak_volts must be between 0 and {supply_volts}, got {peak_volts}")
-
-    peak_count = volts_to_count(peak_volts, supply_volts)
-    return [round(peak_count * (1 - abs(2 * i / steps - 1))) for i in range(steps)]
-
-
-def square_profile(high_volts: float, low_volts: float, supply_volts: float, steps: int) -> list[int]:
-    """Return one cycle that holds `high_volts` for the first half, then `low_volts` for the second."""
-    _check_cycle(supply_volts, steps)
-    _check_signed_volts("high_volts", high_volts, supply_volts)
-    _check_signed_volts("low_volts", low_volts, supply_volts)
-
-    half = steps // 2
-    return [volts_to_count(high_volts, supply_volts)] * half + [volts_to_count(low_volts, supply_volts)] * half
-
-
-def constant_profile(volts: float, supply_volts: float, steps: int) -> list[int]:
-    """Return one cycle that holds `volts` at every step."""
-    if supply_volts <= 0:
-        raise ValueError(f"supply_volts must be positive, got {supply_volts}")
-    if steps < 1:
-        raise ValueError(f"steps must be at least 1, got {steps}")
-    _check_signed_volts("volts", volts, supply_volts)
-    return [volts_to_count(volts, supply_volts)] * steps
-
-
-def segment_profile(
-    segments: Sequence[tuple[float, float, float]], supply_volts: float, step_s: float
-) -> list[int]:
+def segment_profile(segments: Sequence[tuple[float, float, float]], supply_volts: float, step_s: float) -> list[int]:
     """Return one cycle playing each `(start_volts, end_volts, seconds)` segment in order.
 
     A segment with equal start and end holds that level; otherwise it ramps
@@ -72,13 +36,6 @@ def segment_profile(
             for step in range(1, steps + 1)
         ]
     return counts
-
-
-def _check_cycle(supply_volts: float, steps: int) -> None:
-    if supply_volts <= 0:
-        raise ValueError(f"supply_volts must be positive, got {supply_volts}")
-    if steps < 2 or steps % 2:
-        raise ValueError(f"steps must be an even number >= 2, got {steps}")
 
 
 def _check_signed_volts(name: str, volts: float, supply_volts: float) -> None:

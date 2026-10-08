@@ -1,12 +1,8 @@
-import random
 import signal
 
 import pytest
 
 import main
-from jack.show.motion.mouth import STEP_S
-from jack.show.motion.ramp import segment_profile
-from jack.show.motion.speech import MAX_PHRASE_S, random_phrase
 from jack.show.audio.talk_settings import TalkSettings
 from tests.fakes import RecordingBus
 from tests.profiles import MOUTH
@@ -45,44 +41,6 @@ def test_a_dead_mumble_client_is_logged_once_and_the_watchdog_keeps_pinging(noti
     check()
     assert [notify_socket.recv(64), notify_socket.recv(64)] == [b"WATCHDOG=1", b"WATCHDOG=1"]
     assert log == ["Mumble stopped; ROC still works"]
-
-
-WATCHDOG_S = 10  # WatchdogSec in deploy/jack.service
-
-
-def test_demo_cycle_is_four_and_a_half_seconds_inside_the_watchdog():
-    motor_a, motor_b = main.demo_cycle()
-    assert len(motor_a) * STEP_S == pytest.approx(4.5)
-    assert len(motor_a) * STEP_S * 2 < WATCHDOG_S
-
-
-def test_demo_closes_rests_relaxes_rests_then_opens_fully_with_motor_b_off():
-    motor_a, motor_b = main.demo_cycle()
-    assert motor_a == (
-        [341] * 5  # close: +1 V for 0.25 s
-        + [0] * 30  # rest 1.5 s
-        + [-683] * 10  # relax: -2 V for 0.5 s
-        + [0] * 30  # rest 1.5 s
-        + [-410, -819, -1229, -1638, -2048]  # open fully: ramp 0 -> -6 V over 0.25 s
-        + [-2048] * 10  # then hold -6 V for 0.5 s
-    )
-    assert motor_b == [0] * len(motor_a)
-
-
-@pytest.mark.parametrize("seed", range(20))
-def test_speaking_cycle_plays_a_random_phrase_on_the_mouth_with_motor_b_off(seed):
-    motor_a, motor_b = main.speaking_cycle(random.Random(seed))
-    assert motor_a == segment_profile(random_phrase(random.Random(seed)), main.SUPPLY_VOLTS, STEP_S)
-    assert motor_b == [0] * len(motor_a)
-
-
-def test_speaking_phrases_ping_the_watchdog_in_time():
-    assert MAX_PHRASE_S * 2 < WATCHDOG_S
-
-
-def test_consecutive_speaking_cycles_differ():
-    rng = random.Random(1)
-    assert main.speaking_cycle(rng) != main.speaking_cycle(rng)
 
 
 def test_mumble_password_comes_from_the_environment():
