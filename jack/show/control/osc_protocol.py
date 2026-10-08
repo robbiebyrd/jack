@@ -7,6 +7,7 @@ is ignored, NaN or infinity is a 400); /subscribe and /unsubscribe ignore a rele
 1024-65535; /mouth/mode and /mouth/mode/show take a number, non-zero for show and 0 for live.
 """
 
+import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -18,7 +19,9 @@ from jack.show.control.routes import argument_names, check_pose, command_for, ro
 from jack.show.motion.motors import MOTOR_NAMES
 from jack.show.motion.poses import MotorProfile
 from jack.support.clip import clip
-from jack.support.rate_limited_log import RateLimitedLog
+from jack.support.rate_limit import rate_limited
+
+log = logging.getLogger(__name__)
 
 OSC_PREFIX = "/jack"
 
@@ -56,7 +59,6 @@ class OscContext:
     send: Callable[[Destination, list[Message]], None]
     mumble_connected: Callable[[], bool]
     reply_port: int | None
-    log: RateLimitedLog
 
 
 _QUERY_ROUTES = ("/ping", "/status", "/subscribe", "/unsubscribe")
@@ -90,8 +92,7 @@ def osc_command(
 
 
 def handle_osc(address: str, args: Sequence[object], sender: Destination, context: OscContext) -> None:
-    """Apply or answer one OSC message; anything that can't be is logged (rate-limited) and dropped."""
-    log = context.log
+    """Apply or answer one OSC message; anything that can't be is logged (rate-limited by kind) and dropped."""
     try:
         command = osc_command(address, args, context.profiles)
         if isinstance(command, OscQuery):
@@ -102,10 +103,16 @@ def handle_osc(address: str, args: Sequence[object], sender: Destination, contex
         context.subscribers.renew_from(sender[0])
     except CommandError as error:
         # Keyed by status so a flood of varied bad addresses stays one line per kind.
-        log(f"ignored {error.status}", f"Ignored OSC {clip(address)} {clip(list(args))}: {clip(error)}")
+        log.warning(
+            "Ignored OSC %s %s: %s", clip(address), clip(list(args)), clip(error),
+            **rate_limited(f"ignored {error.status}"),
+        )
         return
     if isinstance(command, SetValue) and command.value != command.requested:
-        log(f"clamped {command.motor}", f"Clamped OSC {clip(address)} {command.requested} to {command.value}")
+        log.warning(
+            "Clamped OSC %s %s to %s", clip(address), command.requested, command.value,
+            **rate_limited(f"clamped {command.motor}"),
+        )
 
 
 def _answer(query: OscQuery, sender: Destination, context: OscContext) -> None:
@@ -116,15 +123,15 @@ def _answer(query: OscQuery, sender: Destination, context: OscContext) -> None:
         try:
             context.send(reply_to, messages)
         except OSError as error:
-            context.log("reply failed", f"OSC reply to {reply_to} failed: {clip(error)}")
+            log.warning("OSC reply to %s failed: %s", reply_to, clip(error), **rate_limited("reply failed"))
     else:
         destination = (sender[0], query.port or reply_to[1])
         if isinstance(query, Unsubscribe):
             context.subscribers.unsubscribe(destination)
         elif not context.subscribers.subscribe(destination):
-            context.log(
-                "subscribers full",
-                f"Refused OSC subscription from {destination}: already {MAX_SUBSCRIBERS} subscribers",
+            log.warning(
+                "Refused OSC subscription from %s: already %d subscribers", destination, MAX_SUBSCRIBERS,
+                **rate_limited("subscribers full"),
             )
 
 

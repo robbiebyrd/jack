@@ -28,44 +28,41 @@ class ScriptedPcm:
 
 
 def make_sink(pcm):
-    log = []
-    return AlsaSink(pcm, FakeAlsaError, log.append), log
+    return AlsaSink(pcm, FakeAlsaError)
 
 
-def test_frames_go_to_the_device():
+def test_frames_go_to_the_device(caplog):
     pcm = ScriptedPcm()
-    sink, log = make_sink(pcm)
-    sink.write(constant_frame(5))
+    make_sink(pcm).write(constant_frame(5))
     assert pcm.written == [constant_frame(5)]
-    assert log == []
+    assert caplog.messages == []
 
 
-def test_an_underrun_is_counted_logged_and_ridden_through():
+def test_an_underrun_is_counted_logged_and_ridden_through(caplog):
     pcm = ScriptedPcm([FakeAlsaError("Broken pipe [Headphones]"), None])
-    sink, log = make_sink(pcm)
+    sink = make_sink(pcm)
     sink.write(constant_frame(1))
     sink.write(constant_frame(2))
     assert sink.underruns == 1
-    assert log == ["Audio underrun #1; carrying on"]
+    assert caplog.messages == ["Audio underrun #1; carrying on"]
     assert pcm.written == [constant_frame(2)]
 
 
-def test_repeated_underruns_log_the_first_and_every_hundredth():
+def test_repeated_underruns_log_the_first_and_every_hundredth(caplog):
     pcm = ScriptedPcm([FakeAlsaError("Broken pipe [Headphones]")] * 200)
-    sink, log = make_sink(pcm)
+    sink = make_sink(pcm)
     for _ in range(200):
         sink.write(constant_frame(0))
-    assert log == [f"Audio underrun #{n}; carrying on" for n in (1, 100, 200)]
+    assert caplog.messages == [f"Audio underrun #{n}; carrying on" for n in (1, 100, 200)]
 
 
 def test_other_device_errors_propagate():
-    sink, _ = make_sink(ScriptedPcm([FakeAlsaError("No such device [Headphones]")]))
+    sink = make_sink(ScriptedPcm([FakeAlsaError("No such device [Headphones]")]))
     with pytest.raises(FakeAlsaError):
         sink.write(constant_frame(0))
 
 
 def test_close_closes_the_device():
     pcm = ScriptedPcm()
-    sink, _ = make_sink(pcm)
-    sink.close()
+    make_sink(pcm).close()
     assert pcm.closed

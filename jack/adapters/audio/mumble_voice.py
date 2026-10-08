@@ -4,12 +4,15 @@ pymumble delivers each talker's decoded audio on its own thread; every talker ge
 FrameQueue so the talk loop can take one frame per talker per tick and mix them.
 """
 
+import logging
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Protocol
 
 from jack.show.audio.frame_queue import FrameQueue
 from jack.show.audio.pcm import TICK_S
+
+log = logging.getLogger(__name__)
 
 
 class SoundChunk(Protocol):
@@ -19,9 +22,8 @@ class SoundChunk(Protocol):
 
 
 class MumbleVoice:
-    def __init__(self, max_backlog_frames: int, log: Callable[[str], None]):
+    def __init__(self, max_backlog_frames: int):
         self._max_backlog_frames = max_backlog_frames
-        self._log = log
         self._queues: dict[int, FrameQueue] = {}
         self._lock = threading.Lock()
         self.connected = False
@@ -32,15 +34,15 @@ class MumbleVoice:
             queue = self._queues.setdefault(user["session"], FrameQueue(self._max_backlog_frames))
         dropped = queue.put(chunk.pcm)
         if dropped:
-            self._log(f"Dropped {round(dropped * TICK_S * 1000)} ms of {user['name']}'s voice to keep up")
+            log.warning("Dropped %d ms of %s's voice to keep up", round(dropped * TICK_S * 1000), user["name"])
 
     def on_connected(self) -> None:
         self.connected = True
-        self._log("Connected to Mumble")
+        log.info("Connected to Mumble")
 
     def on_disconnected(self) -> None:
         self.connected = False
-        self._log("Disconnected from Mumble; pymumble retries every 10 s")
+        log.warning("Disconnected from Mumble; pymumble retries every 10 s")
 
     def take_frames(self) -> list[bytes]:
         with self._lock:

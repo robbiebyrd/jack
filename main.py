@@ -5,6 +5,7 @@ Boss's voice from ROC or Mumble plays on the 3.5 mm jack; the mouth follows it (
 the settings, builds every adapter, and hands them to the talk loop.
 """
 
+import logging
 import os
 import signal
 import threading
@@ -31,6 +32,7 @@ from jack.adapters.system.deployment import (
     POSES_PATHS,
     PWM_FREQ_HZ,
 )
+from jack.adapters.system.logging_setup import configure_logging
 from jack.adapters.system.systemd_notify import notify
 from jack.application.config import AppConfig, ConfigError, RocConfig, describe_overrides, load_app_config
 from jack.application.talk_loop import run_talk_loop
@@ -38,10 +40,8 @@ from jack.show.control.control_board import ControlBoard
 from jack.show.control.osc_feedback import Subscribers
 from jack.show.control.osc_protocol import OscContext, handle_osc
 from jack.show.motion.motors import SUPPLY_VOLTS
-from jack.support.rate_limited_log import RateLimitedLog
 
-# One log line per kind of bad OSC message per minute.
-OSC_LOG_INTERVAL_S = 60.0
+log = logging.getLogger("jack.main")
 
 
 def exit_on_sigterm(_signum: int, _frame: FrameType | None) -> NoReturn:
@@ -54,7 +54,7 @@ def ping_watchdog() -> None:
     notify("WATCHDOG=1")
 
 
-def watchdog_noting_mumble(mumble_client: threading.Thread, log: Callable[[str], None]) -> Callable[[], None]:
+def watchdog_noting_mumble(mumble_client: threading.Thread) -> Callable[[], None]:
     """The talk loop's once-a-second callback: ping the watchdog, and log once if Mumble's client thread died.
 
     pymumble's thread ends for good when the server rejects the login. Jack keeps running on ROC; a
@@ -66,7 +66,7 @@ def watchdog_noting_mumble(mumble_client: threading.Thread, log: Callable[[str],
         nonlocal noted
         if not noted and not mumble_client.is_alive():
             noted = True
-            log("Mumble stopped; ROC still works")
+            log.warning("Mumble stopped; ROC still works")
         ping_watchdog()
 
     return check
@@ -75,7 +75,7 @@ def watchdog_noting_mumble(mumble_client: threading.Thread, log: Callable[[str],
 def start_roc_voice(config: RocConfig, max_backlog_frames: int) -> RocVoice:
     """roc-recv running and feeding a RocVoice, or a one-line exit saying what to install."""
     command = roc_recv_command(config.source_port, config.repair_port, config.control_port, config.target_latency_ms)
-    voice = RocVoice(command, max_backlog_frames, print)
+    voice = RocVoice(command, max_backlog_frames)
     try:
         voice.start()
     except FileNotFoundError as error:
@@ -100,15 +100,16 @@ def startup_line(config: AppConfig, motor_names: list[str]) -> str:
 
 def main() -> None:
     signal.signal(signal.SIGTERM, exit_on_sigterm)
+    configure_logging()
     try:
         config = load_app_config(os.environ, POSES_PATHS, SUPPLY_VOLTS)
     except ConfigError as error:
         raise SystemExit(str(error)) from error
     settings, profiles, show = config.settings, config.profiles, config.show_control
     if overrides := describe_overrides(settings):
-        print(f"Mouth setting overrides: {overrides}")  # noqa: T201
+        log.info("Mouth setting overrides: %s", overrides)
     board = ControlBoard(profiles, show.timeout_s, show.mouth_mode, time.monotonic)
-    voice = MumbleVoice(settings.max_backlog_frames, print)
+    voice = MumbleVoice(settings.max_backlog_frames)
     mumble_client = connect_mumble(voice, MUMBLE_HOST, MUMBLE_PORT, MUMBLE_USER, config.mumble_password)
     roc_voice = start_roc_voice(config.roc, settings.max_backlog_frames)
     try:
@@ -117,22 +118,21 @@ def main() -> None:
                 motors = build_motors(bus, PWM_FREQ_HZ)
             except OSError as error:
                 raise SystemExit(str(error)) from error
-            sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
+            sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS)
             endpoint = OscEndpoint("0.0.0.0", show.osc_port)
             subscribers = Subscribers(time.monotonic)
-            osc_log = RateLimitedLog(print, OSC_LOG_INTERVAL_S, time.monotonic)
             context = OscContext(
                 profiles=profiles, board=board, subscribers=subscribers, send=endpoint.send,
-                mumble_connected=lambda: voice.connected, reply_port=show.reply_port, log=osc_log,
+                mumble_connected=lambda: voice.connected, reply_port=show.reply_port,
             )
             endpoint.serve(lambda address, args, sender: handle_osc(address, args, sender, context))
-            start_feedback(endpoint, subscribers, lambda: board.status(voice.connected), osc_log)
+            start_feedback(endpoint, subscribers, lambda: board.status(voice.connected))
             start_http_server("0.0.0.0", show.http_port, board, profiles, lambda: voice.connected)
-            print(startup_line(config, list(motors)))  # noqa: T201
+            log.info(startup_line(config, list(motors)))
             notify("READY=1")
             run_talk_loop(
                 [voice, roc_voice], sink, motors, profiles, settings, board, SUPPLY_VOLTS,
-                watchdog_noting_mumble(mumble_client, print),
+                watchdog_noting_mumble(mumble_client),
             )
     finally:
         roc_voice.close()

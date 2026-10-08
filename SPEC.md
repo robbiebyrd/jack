@@ -543,7 +543,7 @@ on the hardware).
 Out-of-range values are clamped (logged); unknown motors, poses or
 addresses, and mouth commands in `live` mode, are ignored and logged; all
 these log lines are rate-limited to one per kind per minute
-(`jack/support/rate_limited_log.py`). No
+(the `RateLimit` logging filter in `jack/support/rate_limit.py`). No
 authentication: anyone on the LAN may send commands (Boss, 2026-10-02).
 Library: `python-osc` (pip, pinned in `requirements-pi.txt` and
 `requirements-dev.txt`; no dependencies of its own, Python ≥ 3.10; not
@@ -705,8 +705,8 @@ jack/
     hardware/   pca9685, tb6612_motor, motor_hats
     audio/      alsa_sink, mumble_voice, wav_source
     network/    osc_server, http_server, control_page.html
-    system/     systemd_notify, service_guard, deployment
-  support/      attempt_all, rate_limited_log, clip
+    system/     systemd_notify, service_guard, deployment, logging_setup
+  support/      attempt_all, rate_limit, clip
 ```
 
 - `show/` is Jack's show itself: what the motors, voice and controls mean,
@@ -742,9 +742,15 @@ are described in "Show control". Two more modules support them:
   20 ms tick: slew limit on driving harder, max-hold trip, rest pulse, then
   `Rest("brake")` or `Rest("coast")`. The mouth's takes lip sync's target
   in live mode and the board's in show mode, so its state is the motor's.
-- `jack/support/rate_limited_log.py`: `RateLimitedLog(print, interval_s,
-  clock)`, a callable that lets one line per key through per interval, so a
-  flood of bad OSC messages stays one journal line per kind per minute.
+- `jack/support/rate_limit.py`: `RateLimit(interval_s, clock)`, a `logging`
+  filter that lets one record per kind through per interval; a log call
+  names its kind with `**rate_limited(key)`. So a flood of bad OSC messages,
+  or roc-recv restarting, stays one journal line per kind per minute.
+- `jack/adapters/system/logging_setup.py`: `configure_logging()`, called by
+  `main.py` and the tools: every logger's INFO and above to stdout as
+  `LEVEL logger: message` (journald adds the time), through `RateLimit`.
+  Modules log through `logging.getLogger(__name__)`; nothing takes a log
+  callable.
 - `jack/support/clip.py`: `clip(value)` shortens text from the network to
   200 characters before it is logged.
 
@@ -949,7 +955,8 @@ and are not tied to any login session or human user.
   trigger (normally `mmc0` and `default-on`), also when cut short. A
   flash failure is logged but does not fail the deploy. `JACK_LEDS_DIR`
   (default `/sys/class/leds`) lets tests use a fake LED directory.
-- **Logs:** `journalctl -u jack -u jack-update`.
+- **Logs:** `journalctl -u jack -u jack-update`. Each of Jack's lines is
+  `LEVEL jack.<module>: message`, e.g. `WARNING jack.adapters.audio.alsa_sink: Audio underrun #1; carrying on`.
 - **Accepted risk:** `jack-update.service` runs
   `/opt/jack/deploy/jack-update.sh` as root, and that script is replaced
   from the repo on every deploy, so anyone who can push to `main` can run

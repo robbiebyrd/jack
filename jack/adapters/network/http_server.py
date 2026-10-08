@@ -5,7 +5,7 @@ See "HTTP" in SPEC.md. Request logging is off: a held slider on the control page
 """
 
 import json
-import sys
+import logging
 import threading
 from collections.abc import Callable, Mapping
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +15,8 @@ from jack.show.control.commands import CommandError, apply
 from jack.show.control.control_board import ControlBoard
 from jack.show.control.routes import command_for
 from jack.show.motion.poses import MotorProfile
+
+log = logging.getLogger(__name__)
 
 MAX_BODY_BYTES = 4096
 # A phone dropping Wi-Fi mid-request must not hold a server thread forever.
@@ -61,7 +63,7 @@ def start_http_server(
                 self._json(error.status, {"error": str(error)})
             except Exception as error:  # noqa: BLE001  # process boundary: any failure becomes a 500
                 message = f"internal error: {type(error).__name__}: {error}".replace("\n", " ")
-                print(f"http: {self.command} {self.path}: {message}", file=sys.stderr)  # noqa: T201
+                log.error("http: %s %s: %s", self.command, self.path, message)
                 self._json(500, {"error": message})
 
         def _content_length(self) -> int:

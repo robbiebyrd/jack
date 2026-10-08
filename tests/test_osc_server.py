@@ -175,7 +175,7 @@ def test_feedback_thread_sends_the_full_set_to_a_subscriber_then_stops():
     client.bind(("127.0.0.1", 0))
     subs = Subscribers(time.monotonic)
     snapshot = feedback_snapshot()
-    stop_feedback = start_feedback(endpoint, subs, lambda: snapshot, lambda key, message: None, interval_s=0.01)
+    stop_feedback = start_feedback(endpoint, subs, lambda: snapshot, interval_s=0.01)
     try:
         subs.subscribe(client.getsockname())
         got = recv_messages(client, len(state_messages(snapshot)))
@@ -200,8 +200,17 @@ class FailingTo:
         self._endpoint.send(destination, messages)
 
 
+def wait_for_log(caplog, text, timeout_s=2.0):
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if any(text in message for message in caplog.messages):
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"no log line containing {text!r}")
+
+
 @pytest.mark.parametrize("error", [OSError("unreachable"), ValueError("unreachable")])
-def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues(error):
+def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues(error, caplog):
     endpoint = OscEndpoint("127.0.0.1", 0)
     bad = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     bad.bind(("127.0.0.1", 0))
@@ -209,24 +218,16 @@ def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues(error):
     good.bind(("127.0.0.1", 0))
     subs = Subscribers(time.monotonic)
     snapshot = feedback_snapshot()
-    logged = []
-    logged_event = threading.Event()
-
-    def log(key, message):
-        logged.append((key, message))
-        logged_event.set()
-
     subs.subscribe(bad.getsockname())
     subs.subscribe(good.getsockname())
     stop_feedback = start_feedback(
-        FailingTo(endpoint, bad.getsockname(), error), subs, lambda: snapshot, log, interval_s=0.01
+        FailingTo(endpoint, bad.getsockname(), error), subs, lambda: snapshot, interval_s=0.01
     )
     try:
         got = recv_messages(good, len(state_messages(snapshot)))
         assert got == [(address, args) for address, args in state_messages(snapshot)]
-        assert logged_event.wait(2.0)
-        assert str(bad.getsockname()) in logged[0][0]
-        assert "unreachable" in logged[0][1]
+        wait_for_log(caplog, "unreachable")
+        assert f"OSC feedback to {bad.getsockname()} failed: unreachable" in caplog.messages
     finally:
         stop_feedback.set()
         bad.close()
@@ -234,14 +235,13 @@ def test_a_send_error_to_one_subscriber_is_logged_and_feedback_continues(error):
         endpoint.close()
 
 
-def test_an_unexpected_error_in_a_feedback_cycle_is_logged_and_feedback_continues():
+def test_an_unexpected_error_in_a_feedback_cycle_is_logged_and_feedback_continues(caplog):
     endpoint = OscEndpoint("127.0.0.1", 0)
     client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     client.bind(("127.0.0.1", 0))
     subs = Subscribers(time.monotonic)
     snapshot = feedback_snapshot()
     calls = []
-    logged = []
 
     def status():
         calls.append(1)
@@ -250,13 +250,11 @@ def test_an_unexpected_error_in_a_feedback_cycle_is_logged_and_feedback_continue
         return snapshot
 
     subs.subscribe(client.getsockname())
-    stop_feedback = start_feedback(
-        endpoint, subs, status, lambda key, message: logged.append((key, message)), interval_s=0.01
-    )
+    stop_feedback = start_feedback(endpoint, subs, status, interval_s=0.01)
     try:
         got = recv_messages(client, len(state_messages(snapshot)))
         assert got == [(address, args) for address, args in state_messages(snapshot)]
-        assert logged == [("feedback loop", "OSC feedback cycle failed: KeyError: 'motors'")]
+        assert caplog.messages == ["OSC feedback cycle failed: KeyError: 'motors'"]
     finally:
         stop_feedback.set()
         client.close()
@@ -275,7 +273,7 @@ def test_status_is_not_read_while_nobody_is_subscribed():
         calls.append(1)
         return snapshot
 
-    stop_feedback = start_feedback(endpoint, subs, status, lambda key, message: None, interval_s=0.01)
+    stop_feedback = start_feedback(endpoint, subs, status, interval_s=0.01)
     try:
         time.sleep(0.2)
         assert calls == []

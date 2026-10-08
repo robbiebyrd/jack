@@ -19,6 +19,7 @@ from jack.adapters.audio.alsa_sink import open_alsa_sink
 from jack.adapters.audio.wav_source import WavSource
 from jack.adapters.hardware.motor_hats import build_motors
 from jack.adapters.system.deployment import ALSA_DEVICE, ALSA_PERIODS, I2C_BUS, POSES_PATHS, PWM_FREQ_HZ
+from jack.adapters.system.logging_setup import configure_logging
 from jack.adapters.system.service_guard import STOP_APP_FIRST, app_is_running, tool_error_message
 from jack.application.config import DEFAULT_CONTROL_TIMEOUT_S
 from jack.application.talk_loop import run_talk_loop
@@ -75,9 +76,10 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError) as error:
         print(tool_error_message(error), file=sys.stderr)
         return 2
+    configure_logging()
     print(f"Playing {args.wav} on {ALSA_DEVICE} with {settings}")
     with SMBus(I2C_BUS) as bus:
-        sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS, print)
+        sink = open_alsa_sink(ALSA_DEVICE, ALSA_PERIODS)
         try:
             motors = build_motors(bus, PWM_FREQ_HZ)
         except OSError as error:

@@ -29,20 +29,18 @@ class StandInClient:
         return self._alive
 
 
-def test_the_watchdog_pings_while_the_mumble_client_lives(notify_socket):
-    log = []
-    main.watchdog_noting_mumble(StandInClient(alive=True), log.append)()
+def test_the_watchdog_pings_while_the_mumble_client_lives(notify_socket, caplog):
+    main.watchdog_noting_mumble(StandInClient(alive=True))()
     assert notify_socket.recv(64) == b"WATCHDOG=1"
-    assert log == []
+    assert caplog.messages == []
 
 
-def test_a_dead_mumble_client_is_logged_once_and_the_watchdog_keeps_pinging(notify_socket):
-    log = []
-    check = main.watchdog_noting_mumble(StandInClient(alive=False), log.append)
+def test_a_dead_mumble_client_is_logged_once_and_the_watchdog_keeps_pinging(notify_socket, caplog):
+    check = main.watchdog_noting_mumble(StandInClient(alive=False))
     check()
     check()
     assert [notify_socket.recv(64), notify_socket.recv(64)] == [b"WATCHDOG=1", b"WATCHDOG=1"]
-    assert log == ["Mumble stopped; ROC still works"]
+    assert caplog.messages == ["Mumble stopped; ROC still works"]
 
 
 def test_a_missing_roc_recv_exits_saying_what_to_install(monkeypatch, tmp_path):

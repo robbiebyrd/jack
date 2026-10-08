@@ -41,8 +41,8 @@ def voices():
     """Every RocVoice a test makes is closed afterwards, so no child process or pipe outlives it."""
     made = []
 
-    def make(command, log=None, **kwargs):
-        voice = RocVoice(command, 50, (log if log is not None else []).append, **kwargs)
+    def make(command, **kwargs):
+        voice = RocVoice(command, 50, **kwargs)
         made.append(voice)
         return voice
 
@@ -103,32 +103,31 @@ def test_digital_silence_is_not_handed_to_the_talk_loop(tmp_path, voices):
 
 
 def test_a_missing_program_fails_at_start():
-    voice = RocVoice(["/nonexistent/roc-recv"], 50, print)
+    voice = RocVoice(["/nonexistent/roc-recv"], 50)
     with pytest.raises(FileNotFoundError):
         voice.start()
     voice.close()
 
 
-def test_an_exited_roc_recv_is_restarted_and_logged_once_a_minute(tmp_path, voices):
+def test_an_exited_roc_recv_is_restarted_and_logged_once_a_minute(tmp_path, voices, journal):
+    caplog = journal()
     runs = tmp_path / "runs"
-    log = []
     body = f"open({str(runs)!r}, 'a').write('x')\nsys.exit(3)\n"
-    voice = voices(fake_roc_recv(tmp_path, body), log, restart_delay_s=0.01)
+    voice = voices(fake_roc_recv(tmp_path, body), restart_delay_s=0.01)
     voice.start()
     wait_for(lambda: runs.exists() and len(runs.read_text()) >= 3)
-    assert log == ["roc-recv exited (code 3); restarting"]
+    assert caplog.messages == ["roc-recv exited (code 3); restarting"]
 
 
-def test_a_program_that_vanishes_between_runs_keeps_being_retried(tmp_path, voices):
+def test_a_program_that_vanishes_between_runs_keeps_being_retried(tmp_path, voices, caplog):
     runs = tmp_path / "runs"
-    log = []
     body = f"open({str(runs)!r}, 'a').write('x')\nos.remove(__file__)\nsys.exit(0)\n"
     command = fake_roc_recv(tmp_path, body)
-    voice = voices(command, log, restart_delay_s=0.01)
+    voice = voices(command, restart_delay_s=0.01)
     voice.start()
-    wait_for(lambda: len(log) >= 2)
-    assert log[0] == "roc-recv exited (code 0); restarting"
-    assert log[1].startswith("roc-recv could not start")
+    wait_for(lambda: len(caplog.messages) >= 2)
+    assert caplog.messages[0] == "roc-recv exited (code 0); restarting"
+    assert caplog.messages[1].startswith("roc-recv could not start")
     assert voice._thread.is_alive()
 
 

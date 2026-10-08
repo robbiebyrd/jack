@@ -17,7 +17,8 @@ ALLOWED = {
 # What the pure layers (everything but adapters/) may import: none of it reaches hardware, the network,
 # the sound card, files or other processes. A new import fails here until someone decides it belongs.
 PURE_IMPORTS = {
-    "array", "collections", "contextlib", "dataclasses", "enum", "itertools", "math", "random", "threading", "typing",
+    "array", "collections", "contextlib", "dataclasses", "enum", "itertools", "logging", "math", "random", "threading",
+    "typing",
     "jack",
 }
 # poses.py reads its own TOML files (the spec's one exception); config.py passes their paths to it.
