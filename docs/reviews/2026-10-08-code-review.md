@@ -9,6 +9,30 @@ Baseline measured in this review: 1807 tests, 1805 pass. The 2 failures
 are an artefact of running the suite as root, where `chmod 0` does not block reads. They pass as a
 normal user. Ruff with a broad rule set reports 62 findings, none of them bugs (details in section 5).
 
+## 0. Status (same day, later)
+
+Boss approved the plan and every step in section 7 is done on this branch, in six commits after
+this review, with the suite green after each (775 tests, 2 skipped under root):
+
+1. Tooling: `pyproject.toml` has a `[project]` table and the ruff config; every finding fixed; CI
+   runs ruff and pytest on 3.11 and 3.13; the two root-sensitive tests skip under uid 0.
+2. The demo is retired. The permission layer of this session refused `git rm`, so the four
+   modules sit in `docs/archive/retired-demo/` (unimported, untested) with a README; tag
+   `pre-show-control-demo` marks the last commit with them live. Delete the directory at will.
+3. `jack/application/config.py` (`AppConfig`, `ConfigError`), `jack/adapters/system/deployment.py`
+   and `jack/adapters/hardware/motor_hats.py` exist; `main.py` is a 140-line composition root and
+   nothing imports it.
+4. One `MotorDriver` per motor; `LipSync.target()` names the volts only. The hand-over protocol is
+   gone. Two behaviour changes rode along, both safer: rest-pulse ticks spend the stall budget for
+   every motor (a flickering show command can't stack pulses), and a tripped max hold rests one
+   tick before its pulse.
+5. `show_commands.py` is `commands.py`, `routes.py` and `osc_protocol.py`; `status()` returns a
+   typed `Status` whose `to_json()` is the old document.
+6. `logging` everywhere, with `RateLimit` as a filter on the one handler.
+
+Not done, by choice: `pydantic-settings` (a new dependency on the Pi for ~40 lines of parsing that
+`config.py` now holds cleanly) and the keyword-only callback signatures in 4.7.
+
 ## 1. Verdict
 
 The codebase is in good shape. It is small (about 3,100 lines of production Python, 4,900 of tests),
