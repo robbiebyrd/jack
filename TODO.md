@@ -2,7 +2,7 @@
 
 Show control is live on the Pi (deployed 2026-10-02, commit 6810f2a). These steps remain.
 
-## 1. Calibrate each new motor once it's wired
+## 1. Calibrate the Elbow Pivot motor once it's wired
 
 Mouth, hand and pivot were calibrated on 2026-10-02. The elbow doesn't respond yet (to check inside the animatronic) and still runs on placeholder values: 2 V poses, 0.5 s long, 1 s holds at ±2 V.
 
@@ -34,10 +34,6 @@ Run each of these and confirm Jack comes back on its own and every motor rests:
 
 ## 4. Check TouchOSC behaviour on the real layout
 
-See the README's TouchOSC section for setup: host `10.10.0.54`, send port 9000, subscribe with your receive port (1024 or higher).
-
-- **Re-import `touchosc/jack.tosc` and check the faders snap back when released** (mouth and elbow to the bottom, hand and pivot to the middle), and that the motor rests at once. A held fader now keeps going until the motor's holds run out (the dead-man is 5 s, since TouchOSC doesn't resend a fader held still).
-- **Watch whether faders and toggles twitch or fight you** while Jack sends feedback. That would mean TouchOSC re-sends values it receives on a control's address, which interferes with the dead-man rule. If it happens, tell Claude.
 - **Use a toggle button,** not a momentary one, on `/jack/mouth/mode/show`.
 
 ## Optional
