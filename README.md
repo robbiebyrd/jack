@@ -89,6 +89,24 @@ mouth with it. Both work at once; ROC is the everyday way, Mumble the fallback.
 If the sound breaks up, raise `JACK_ROC_TARGET_LATENCY_MS` (below); on the home Wi-Fi 90 ms held
 and 60 ms broke up.
 
+### Hearing Jack's microphone (on a Mac)
+
+The USB sound card's microphone streams the other way, from the Pi to the Mac, as a virtual input
+device. `jack-mic.service` (installed by `install.sh`) runs `roc-send` on the Pi and sends to the Mac
+at `JACK_MIC_RECEIVER` (below). On the Mac, create a receiver once and bind it to the same ports:
+
+```bash
+roc-vad device add receiver --name "Jack Mic"
+roc-vad device bind 2 \
+  --source rtp+rs8m://0.0.0.0:10011 \
+  --repair rs8m://0.0.0.0:10012 \
+  --control rtcp://0.0.0.0:10013
+```
+
+(use the id `roc-vad device list` shows.) Then pick "Jack Mic" as the input in any Mac app, or as the
+Mac's sound input (System Settings → Sound → Input). The Mac's address is fixed in `jack.env`; if it
+changes, set `JACK_MIC_RECEIVER` and `sudo systemctl restart jack-mic`. Logs: `journalctl -u jack-mic`.
+
 ### Tuning the lip sync
 
 The mouth's voltage follows the audio's amplitude: twice as loud (in amplitude) opens it twice as far,
@@ -307,6 +325,11 @@ any mouth command is dropped.
 | `JACK_ROC_REPAIR_PORT` | `10002` | ROC repair (FEC) UDP port |
 | `JACK_ROC_CONTROL_PORT` | `10003` | ROC control (RTCP) UDP port |
 | `JACK_ROC_TARGET_LATENCY_MS` | `100` | ROC's latency target; raise it if the sound breaks up |
+| `JACK_MIC_RECEIVER` | `10.10.0.22` | The Mac the USB microphone streams to |
+| `JACK_MIC_DEVICE` | `hw:S3` | ALSA name of the USB sound card (`arecord -l`) |
+| `JACK_MIC_SOURCE_PORT` | `10011` | Microphone audio (RTP) UDP port on the Mac |
+| `JACK_MIC_REPAIR_PORT` | `10012` | Microphone repair (FEC) UDP port on the Mac |
+| `JACK_MIC_CONTROL_PORT` | `10013` | Microphone control (RTCP) UDP port on the Mac |
 
 ### Motor settings: `poses.toml`
 
@@ -328,7 +351,7 @@ A mistake in either file stops the app with a one-line message in `journalctl -u
 ## Operate
 
 ```bash
-journalctl -u jack -u jack-update -f   # logs
+journalctl -u jack -u jack-update -u jack-mic -f   # logs
 sudo systemctl stop jack               # stop (brake) the motors now
 sudo systemctl disable --now jack      # keep it off across reboots
 ```

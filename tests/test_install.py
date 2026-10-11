@@ -52,3 +52,10 @@ def test_kernel_crashes_are_kept_across_a_reset_and_reboot_the_pi():
     script = INSTALL.read_text()
     assert "dtoverlay=ramoops-pi4" in script
     assert "kernel.panic = 10" in script
+
+
+def test_the_microphone_stream_is_installed_enabled_and_restarted():
+    script = INSTALL.read_text()
+    assert '"$REPO_DIR/deploy/jack-mic.service"' in script
+    assert "systemctl enable jack-mic.service" in script
+    assert "systemctl restart jack-mic.service" in script

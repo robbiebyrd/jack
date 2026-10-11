@@ -59,12 +59,16 @@ install -m 0644 \
   "$REPO_DIR/deploy/jack-update.service" \
   "$REPO_DIR/deploy/jack-update.timer" \
   "$REPO_DIR/deploy/jack-health.service" \
+  "$REPO_DIR/deploy/jack-mic.service" \
   /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable jack.service jack-update.timer
 systemctl start jack-update.timer
 # Debug log for the Pi's hangs (SPEC.md "Hardware facts").
 systemctl enable --now jack-health.service
+# The microphone stream to the Mac (SPEC.md "Microphone to the Mac"); restarted so a changed unit or script takes effect.
+systemctl enable jack-mic.service
+systemctl restart jack-mic.service
 # Restart (or first start) the app so a changed unit takes effect; on a fresh install it can't start until the password is set.
 systemctl restart jack.service || echo "jack.service did not start yet (see: journalctl -u jack); set the password below, then restart it"
 

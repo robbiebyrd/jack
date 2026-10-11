@@ -1,0 +1,15 @@
+[Unit]
+Description=Jack microphone: streams the USB sound card's input to the Mac over Roc Toolkit
+StartLimitIntervalSec=0
+
+[Service]
+User=jack
+Group=jack
+SupplementaryGroups=audio
+EnvironmentFile=/etc/jack/jack.env
+ExecStart=/bin/bash /opt/jack/deploy/jack-mic.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

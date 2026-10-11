@@ -54,8 +54,11 @@ and its official sample code (`Motor_Driver_HAT_Code.7z`, `Raspberry Pi/python`)
 - I2C disabled (`#dtparam=i2c_arm=on` in `/boot/firmware/config.txt`).
 - `sudo` requires a password, so Boss runs root setup steps.
 - Pi 4, 4 cores, 8 GB RAM. Network is Wi-Fi (`wlan0`); `eth0` is down.
-- Audio out: ALSA card 0, `bcm2835 Headphones` (the 3.5 mm jack); cards
-  1 and 2 are HDMI. No audio input. No PipeWire, PulseAudio, mpv, ffmpeg,
+- Audio out: ALSA card 0, `bcm2835 Headphones` (the 3.5 mm jack); the
+  HDMI cards follow. Audio in (added 2026-10-11): a Creative Sound Blaster
+  Play! 3 on USB, ALSA name `S3` (`hw:S3`; its card number depends on
+  enumeration order), capture S16/S24 stereo at 44.1 or 48 kHz, with a
+  microphone plugged in. No PipeWire, PulseAudio, mpv, ffmpeg,
   GStreamer or numpy installed.
 - Trixie package candidates (checked 2026-09-28): `mumble-server`
   1.5.735-5+deb13u1, `python3-alsaaudio` 0.10.0, `python3-opuslib` 3.0.1,
@@ -352,8 +355,45 @@ silence while nobody sends.
   `roc-vad device connect <id> --source rtp+rs8m://10.10.0.54:10001
   --repair rs8m://10.10.0.54:10002 --control rtcp://10.10.0.54:10003`, and
   choose "Jack" as the sound output.
-- **Out of scope:** an OSC/HTTP "ROC receiving" indicator, choosing one
-  source over the other, and sending audio back to the Mac.
+- **Out of scope:** an OSC/HTTP "ROC receiving" indicator and choosing one
+  source over the other. (Audio back to the Mac: see "Microphone to the
+  Mac".)
+
+### Microphone to the Mac (designed with Boss, 2026-10-11)
+
+The USB sound card's microphone streams from the Pi to the Mac over Roc
+Toolkit, the reverse of "ROC voice", so a Mac app can hear what the
+microphone hears. Verified in a probe (2026-10-11): `roc-send` 0.4.0 opens
+the card as `alsa://hw:S3` (24-bit, 48 kHz, stereo) and roc-vad 0.0.4
+offers `device add receiver`, a virtual input device.
+
+- **`deploy/jack-mic.sh`:** `exec roc-send -i alsa://<device>
+  -s rtp+rs8m://<receiver>:<source> -r rs8m://<receiver>:<repair>
+  -c rtcp://<receiver>:<control>`, each value from `jack.env` or its
+  default. The Mac's address is a setting because nothing on the Pi can
+  discover it; the default is Boss's Mac as measured on 2026-10-11.
+- **`deploy/jack-mic.service`:** runs the script as `jack` (group `audio`)
+  from the checkout, `Restart=always`, `RestartSec=5`,
+  `StartLimitIntervalSec=0`, at boot. It is independent of `jack.service`:
+  the app neither knows nor needs the stream. `install.sh` installs,
+  enables and restarts it; `jack-update.sh` does not restart it, so a
+  changed script takes effect at the next `install.sh` run, restart or
+  reboot.
+- **Settings** (`/etc/jack/jack.env`): `JACK_MIC_RECEIVER` (default
+  `10.10.0.22`), `JACK_MIC_DEVICE` (`hw:S3`), `JACK_MIC_SOURCE_PORT`
+  (`10011`), `JACK_MIC_REPAIR_PORT` (`10012`), `JACK_MIC_CONTROL_PORT`
+  (`10013`). The ports are the Mac's, distinct from the `JACK_ROC_*` ports
+  the Pi listens on. The script does not validate them: `roc-send` fails
+  loudly and systemd restarts it.
+- **Mac side** (README "Hearing Jack's microphone"): once,
+  `roc-vad device add receiver --name "Jack Mic"` and `roc-vad device bind
+  <id> --source rtp+rs8m://0.0.0.0:10011 --repair rs8m://0.0.0.0:10012
+  --control rtcp://0.0.0.0:10013`; then choose "Jack Mic" as an input.
+- **Failures:** the card unplugged, the Mac away or the address wrong:
+  `roc-send` exits or keeps sending into the void; systemd restarts it every
+  5 s forever, and the journal (`journalctl -u jack-mic`) says why.
+- **Out of scope:** lip sync or any app behaviour driven by the microphone,
+  and discovering the Mac's address.
 
 ### Failure handling
 
@@ -940,6 +980,8 @@ and are not tied to any login session or human user.
   `requirements-pi.txt`, it runs the venv's `pip install -r` first, so
   code never deploys without its pinned dependency. Local edits on the Pi
   are discarded by design. The repo is the only source of truth.
+- **`jack-mic.service`:** the microphone stream to the Mac, running
+  `/opt/jack/deploy/jack-mic.sh` as `jack` (see "Microphone to the Mac").
 - **`deploy/install.sh`** (run as root by Boss; safe to re-run): installs
   `git`, `mumble-server`, `python3-alsaaudio`, `python3-opuslib`,
   `python3-protobuf` and `python3-venv`, enables I2C
@@ -955,7 +997,7 @@ and are not tied to any login session or human user.
   trigger (normally `mmc0` and `default-on`), also when cut short. A
   flash failure is logged but does not fail the deploy. `JACK_LEDS_DIR`
   (default `/sys/class/leds`) lets tests use a fake LED directory.
-- **Logs:** `journalctl -u jack -u jack-update`. Each of Jack's lines is
+- **Logs:** `journalctl -u jack -u jack-update -u jack-mic`. Each of Jack's lines is
   `LEVEL jack.<module>: message`, e.g. `WARNING jack.adapters.audio.alsa_sink: Audio underrun #1; carrying on`.
 - **Accepted risk:** `jack-update.service` runs
   `/opt/jack/deploy/jack-update.sh` as root, and that script is replaced

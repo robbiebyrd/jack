@@ -63,3 +63,15 @@ def test_the_health_log_runs_from_the_checkout_at_boot_and_restarts():
     assert unit["Service"]["ExecStart"] == "/bin/bash /opt/jack/deploy/jack-health.sh"
     assert unit["Service"]["Restart"] == "always"
     assert unit["Install"]["WantedBy"] == "multi-user.target"
+
+
+def test_the_microphone_stream_runs_as_jack_from_the_checkout_with_its_settings_and_restarts():
+    unit = load_unit("jack-mic.service")
+    assert unit["Service"]["ExecStart"] == "/bin/bash /opt/jack/deploy/jack-mic.sh"
+    assert unit["Service"]["EnvironmentFile"] == "/etc/jack/jack.env"
+    assert unit["Service"]["User"] == "jack"
+    assert unit["Service"]["SupplementaryGroups"] == "audio"
+    assert unit["Service"]["Restart"] == "always"
+    assert unit["Service"]["RestartSec"] == "5"
+    assert unit["Unit"]["StartLimitIntervalSec"] == "0"
+    assert unit["Install"]["WantedBy"] == "multi-user.target"
