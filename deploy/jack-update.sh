@@ -7,7 +7,7 @@ set -euo pipefail
 main() {
   local repo_dir="${JACK_REPO_DIR:-/opt/jack}"
   local branch=main
-  local service=jack.service
+  local services="jack.service jack-mic.service"
   local venv_dir="${JACK_VENV_DIR:-/opt/jack-venv}"
 
   cd "$repo_dir"
@@ -29,7 +29,7 @@ main() {
     "$venv_dir/bin/pip" install --quiet --no-deps -r "$requirements"
   fi
   git reset --hard --quiet "origin/$branch"
-  systemctl try-restart "$service"
+  systemctl try-restart $services
   # Blink the onboard LEDs so someone at the bench can see a deploy landed.
   # The code is already deployed, so a flash failure must not fail the run.
   bash "$repo_dir/deploy/flash-leds.sh" || echo "LED flash failed; deploy of $target succeeded"

@@ -376,9 +376,9 @@ offers `device add receiver`, a virtual input device.
   from the checkout, `Restart=always`, `RestartSec=5`,
   `StartLimitIntervalSec=0`, at boot. It is independent of `jack.service`:
   the app neither knows nor needs the stream. `install.sh` installs,
-  enables and restarts it; `jack-update.sh` does not restart it, so a
-  changed script takes effect at the next `install.sh` run, restart or
-  reboot.
+  enables and restarts it, and `jack-update.sh` restarts it with
+  `jack.service` on every deploy, so a changed script takes effect at once
+  (a changed unit still needs `install.sh`).
 - **Settings** (`/etc/jack/jack.env`): `JACK_MIC_RECEIVER` (default
   `10.10.0.22`), `JACK_MIC_DEVICE` (`hw:S3`), `JACK_MIC_SOURCE_PORT`
   (`10011`), `JACK_MIC_REPAIR_PORT` (`10012`), `JACK_MIC_CONTROL_PORT`
@@ -975,8 +975,8 @@ and are not tied to any login session or human user.
   `/opt/jack/deploy/jack-update.sh`.
 - **`deploy/jack-update.sh`:** `git fetch origin main`; if `HEAD` differs
   from `origin/main`, `git reset --hard origin/main` and
-  `systemctl try-restart jack` (restarts only if running, so a deliberate
-  stop is not overridden). If the new commit changed
+  `systemctl try-restart jack jack-mic` (each restarts only if running, so a
+  deliberate stop is not overridden). If the new commit changed
   `requirements-pi.txt`, it runs the venv's `pip install -r` first, so
   code never deploys without its pinned dependency. Local edits on the Pi
   are discarded by design. The repo is the only source of truth.

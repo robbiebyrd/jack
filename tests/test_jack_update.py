@@ -131,14 +131,14 @@ def test_new_commit_is_deployed_and_app_restarted_once(deployment):
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
     assert (deployment.checkout / "main.py").read_text() == "print('v2')\n"
-    assert deployment.restarts() == ["try-restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service jack-mic.service"]
 
 
 def test_second_run_after_deploy_does_not_restart_again(deployment):
     deployment.commit_and_push("main.py", "print('v2')\n")
     deployment.run_update()
     deployment.run_update()
-    assert deployment.restarts() == ["try-restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service jack-mic.service"]
 
 
 def test_local_edits_on_the_pi_are_discarded(deployment):
@@ -157,7 +157,7 @@ def test_force_pushed_history_is_followed(deployment):
     result = deployment.run_update()
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == rewritten
-    assert deployment.restarts() == ["try-restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service jack-mic.service"]
 
 
 def test_fetch_failure_leaves_checkout_and_app_untouched(deployment):
@@ -177,7 +177,7 @@ def test_commit_that_rewrites_the_update_script_completes_cleanly(deployment):
     result = deployment.run_update()
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
-    assert deployment.restarts() == ["try-restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service jack-mic.service"]
 
 
 def test_deploy_flashes_the_leds_for_ten_seconds_then_restores_them(deployment):
@@ -200,7 +200,7 @@ def test_led_failure_does_not_fail_the_deploy(deployment):
     result = deployment.run_update()
     assert result.returncode == 0, result.stderr
     assert git(deployment.checkout, "rev-parse", "HEAD") == new_head
-    assert deployment.restarts() == ["try-restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service jack-mic.service"]
     assert "LED flash failed" in result.stdout
 
 
@@ -213,7 +213,7 @@ def test_changed_requirements_are_installed_before_the_restart(deployment):
     runs = deployment.pip_runs()
     assert runs[0].startswith("install --quiet --no-deps -r ")
     assert runs[1] == new_requirement
-    assert deployment.restarts() == ["try-restart jack.service"]
+    assert deployment.restarts() == ["try-restart jack.service jack-mic.service"]
 
 
 def test_unchanged_requirements_skip_pip(deployment):
