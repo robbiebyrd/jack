@@ -15,7 +15,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 apt-get update
-apt-get install -y git python3-smbus2 raspi-config mumble-server python3-alsaaudio python3-opuslib python3-protobuf python3-venv roc-toolkit-tools
+apt-get install -y git python3-smbus2 raspi-config mumble-server python3-alsaaudio python3-opuslib python3-protobuf python3-venv roc-toolkit-tools avahi-daemon
 
 # 0 = enable in raspi-config's non-interactive mode
 raspi-config nonint do_i2c 0
@@ -62,6 +62,10 @@ install -m 0644 \
   "$REPO_DIR/deploy/jack-mic.service" \
   /etc/systemd/system/
 systemctl daemon-reload
+# Advertise OSC and OSCQuery over Bonjour (SPEC.md "OSCQuery"); avahi-daemon picks up the file by itself.
+install -d -m 0755 /etc/avahi/services
+install -m 0644 "$REPO_DIR/deploy/jack.avahi.service" /etc/avahi/services/jack.service
+systemctl enable --now avahi-daemon.service
 systemctl enable jack.service jack-update.timer
 systemctl start jack-update.timer
 # Debug log for the Pi's hangs (SPEC.md "Hardware facts").

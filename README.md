@@ -278,6 +278,24 @@ version, so check it against your layout.
   mode toggle's address, `/jack/mouth/mode/show`, receives 1.0 or 0.0, so it shows the real
   mode. `/jack/<motor>/volts` and `/jack/<motor>/max_hold` can drive labels and LEDs.
 
+### OSCQuery
+
+Jack describes its OSC address space with [OSCQuery](https://github.com/Vidvox/OSCQueryProposal),
+so an OSCQuery client (ossia score, Chataigne, TouchDesigner, VVOSCQuery Browser…) can list every
+address, its type, range, pose names and current value without being told. It is plain HTTP on
+TCP port 9001, and Jack advertises it over Bonjour as `_oscjson._tcp` (with OSC as `_osc._udp`),
+so clients on the LAN find "Jack on …" by themselves.
+
+```bash
+curl http://10.10.0.54:9001/                     # the whole address space
+curl http://10.10.0.54:9001/jack/hand            # one motor and its sub-addresses
+curl 'http://10.10.0.54:9001/jack/hand?VALUE'    # one attribute: {"VALUE": [0.0]}
+curl 'http://10.10.0.54:9001/?HOST_INFO'         # OSC port 9000 over UDP, and what's supported
+```
+
+Values are read when asked; for a stream of changes use `/jack/subscribe` (OSCQuery's websocket
+`LISTEN` is not provided). Commands still go to OSC on UDP 9000.
+
 ### HTTP
 
 JSON in and out. A bad request gets a one-line JSON error: `400` bad input, `404` unknown motor,
@@ -319,6 +337,7 @@ any mouth command is dropped.
 | `JACK_OSC_PORT` | `9000` | OSC UDP port |
 | `JACK_OSC_REPLY_PORT` | sender's port | UDP port OSC replies and feedback go to |
 | `JACK_HTTP_PORT` | `8080` | HTTP TCP port |
+| `JACK_OSCQUERY_PORT` | `9001` | OSCQuery TCP port (also change `/etc/avahi/services/jack.service`) |
 | `JACK_CONTROL_TIMEOUT_S` | `5` | Seconds without a new value before a motor rests |
 | `JACK_MOUTH_MODE` | `live` | Mouth mode at startup: `live` or `show` |
 | `JACK_ROC_SOURCE_PORT` | `10001` | ROC audio (RTP) UDP port |

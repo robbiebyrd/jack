@@ -59,3 +59,12 @@ def test_the_microphone_stream_is_installed_enabled_and_restarted():
     assert '"$REPO_DIR/deploy/jack-mic.service"' in script
     assert "systemctl enable jack-mic.service" in script
     assert "systemctl restart jack-mic.service" in script
+
+
+def test_osc_and_oscquery_are_advertised_over_bonjour():
+    script = INSTALL.read_text()
+    assert "avahi-daemon" in script
+    assert '"$REPO_DIR/deploy/jack.avahi.service" /etc/avahi/services/jack.service' in script
+    service = (INSTALL.parent / "jack.avahi.service").read_text()
+    assert "<type>_oscjson._tcp</type>\n    <port>9001</port>" in service
+    assert "<type>_osc._udp</type>\n    <port>9000</port>" in service

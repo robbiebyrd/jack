@@ -140,6 +140,13 @@ def test_show_control_defaults():
     )
 
 
+def test_oscquery_port_defaults_to_9001_and_comes_from_the_environment():
+    assert config.show_control_config({}).oscquery_port == 9001
+    assert config.show_control_config({"JACK_OSCQUERY_PORT": "9101"}).oscquery_port == 9101
+    with pytest.raises(ConfigError, match="JACK_OSCQUERY_PORT"):
+        config.show_control_config({"JACK_OSCQUERY_PORT": "70000"})
+
+
 def test_reply_port_defaults_to_the_senders_port():
     assert config.show_control_config({}).reply_port is None
 
