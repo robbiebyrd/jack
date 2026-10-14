@@ -54,7 +54,7 @@ def test_the_startup_line_names_the_ports_mode_motors_and_uncalibrated_motors():
     config = load_app_config({"JACK_MUMBLE_PASSWORD": "x", "JACK_MOUTH_MODE": "show"}, POSES_PATHS, SUPPLY_VOLTS)
     line = main.startup_line(config, ["mouth", "hand", "pivot", "elbow"])
     assert "UDP 10001/10002/10003" in line and "100 ms" in line
-    assert "mouth show" in line and "OSC UDP 9000" in line and "HTTP 8080" in line
+    assert "mouth show" in line and "OSC UDP 9000" in line and "OSCQuery 9001" in line and "HTTP 8080" in line
     assert "OSC replies to sender's port" in line
     assert line.endswith("uncalibrated: elbow")  # poses.toml's elbow is a placeholder
 

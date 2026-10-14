@@ -640,6 +640,50 @@ Measured 2026-10-03 (Jack's own feedback while Boss held the hand fader): a Touc
 
 Feedback order: each motor's `/jack/<motor>`, `volts` and `max_hold`, then `/jack/mouth/mode` (string), `/jack/mouth/mode/show` (float), then `/jack/mumble`. Feedback values meant for TouchOSC controls are floats.
 
+### OSCQuery (TCP, default port 9001, `JACK_OSCQUERY_PORT`; Boss, 2026-10-14)
+
+Jack is an OSCQuery server ([Vidvox OSCQueryProposal](https://github.com/Vidvox/OSCQueryProposal)), so a
+client can browse its OSC address space instead of being configured by hand.
+
+- **Server:** `jack/adapters/network/oscquery_server.py`, Python's `ThreadingHTTPServer` (HTTP/1.1, no new
+  dependency) on its own port, since OSCQuery owns `/` and the HTTP port serves the control page there.
+  `GET <path>` returns that node and everything below it as JSON; `GET <path>?<ATTRIBUTE>` returns
+  `{"<ATTRIBUTE>": …}`; `?HOST_INFO` returns the host whatever the path. A percent-encoded path is decoded,
+  `?VALUE=` means `?VALUE`, and the fragment is dropped. Every answer carries
+  `Access-Control-Allow-Origin: *` for browser clients. Request logging is off; an unexpected error is a
+  500, logged.
+- **Errors:** a path not in the address space → `404`; an attribute Jack doesn't know or support (including
+  `LISTEN`, `HTML`, `UNIT`, a lower-case name) → `400`; `VALUE` of a node with nothing to read (a button,
+  a container, `pose`, `subscribe`) → `204`; a supported attribute the node lacks → `{}`.
+- **Namespace** (`jack/show/control/osc_query.py`, pure): `/` → `/jack` → every address `osc_protocol.py`
+  takes or the feedback sends. Attributes: `FULL_PATH`, `CONTENTS`, `TYPE`, `ACCESS`, `VALUE`, `RANGE`,
+  `DESCRIPTION`, `CLIPMODE`, `OVERLOADS`.
+
+  | Address | TYPE | ACCESS | Notes |
+  |---|---|---|---|
+  | `/jack/<motor>` | `f` | read/write | RANGE 0…1 (hand, pivot −1…1), CLIPMODE `both` |
+  | `/jack/<motor>/volts` | `f` | read | |
+  | `/jack/<motor>/max_hold` | `i` | read | 0…1 |
+  | `/jack/<motor>/pose` | `s` | write | RANGE VALS: the motor's poses; OVERLOADS `sf` (seconds) |
+  | `/jack/<motor>/pose/<name>`, `/jack/<motor>/rest`, `/jack/rest`, `/jack/ping`, `/jack/status` | — | write | buttons: no TYPE, since they take no argument or a number |
+  | `/jack/mouth/mode` | `s` | read/write | VALS `live`, `show` |
+  | `/jack/mouth/mode/show` | `f` | read/write | 0…1 |
+  | `/jack/mumble` | `i` | read | 0…1 |
+  | `/jack/subscribe`, `/jack/unsubscribe` | `i` | write | 1024…65535 (optional) |
+
+  `VALUE` comes from `state_messages` of a fresh `Status`, the same messages as the OSC feedback, so the
+  readable addresses and their values are exactly the feedback's; a test holds the namespace to both
+  `state_messages` and `osc_command`.
+- **HOST_INFO:** `NAME` "Jack", `OSC_PORT` (`JACK_OSC_PORT`), `OSC_TRANSPORT` "UDP", and `EXTENSIONS`
+  true for the attributes above and false for `TAGS`, `EXTENDED_TYPE`, `UNIT`, `CRITICAL`, `HTML`,
+  `LISTEN` and `PATH_CHANGED`. No `OSC_IP`: the OSC server is on the same host.
+- **Discovery:** `deploy/jack.avahi.service`, installed by `install.sh` as
+  `/etc/avahi/services/jack.service` (with `avahi-daemon`), advertises `_oscjson._tcp` on 9001 and
+  `_osc._udp` on 9000 as "Jack on <hostname>". Its ports are fixed: changing `JACK_OSC_PORT` or
+  `JACK_OSCQUERY_PORT` means editing it too.
+- **Not provided:** the optional websocket (`LISTEN`/`IGNORE` streaming and `PATH_CHANGED`; the address
+  space only changes on a restart); OSC subscriptions cover streaming. No authentication, as for OSC.
+
 ### HTTP (TCP, default port 8080, `JACK_HTTP_PORT`)
 
 Python's `ThreadingHTTPServer`, no new dependency. JSON in and out:
@@ -739,12 +783,12 @@ jack/
   show/                 pure logic: no hardware, network, sound card or systemd
     audio/      pcm, envelope, frame_queue, lip_sync, talk_settings
     motion/     motors, poses, motor_driver, stall_budget, ramp, segments
-    control/    control_board, status, commands, routes, osc_protocol, osc_feedback
+    control/    control_board, status, commands, routes, osc_protocol, osc_feedback, osc_query
   application/  ports, config, talk_loop, calibration
   adapters/
     hardware/   pca9685, tb6612_motor, motor_hats
     audio/      alsa_sink, mumble_voice, wav_source
-    network/    osc_server, http_server, control_page.html
+    network/    osc_server, oscquery_server, http_server, control_page.html
     system/     systemd_notify, service_guard, deployment, logging_setup
   support/      attempt_all, rate_limit, clip
 ```
@@ -774,7 +818,8 @@ jack/
 
 Show control's modules (`motors.py`, `poses.py`, `poses.toml`,
 `control_board.py`, `status.py`, `commands.py`, `routes.py`,
-`osc_protocol.py`, `osc_server.py`, `http_server.py`, `control_page.html`)
+`osc_protocol.py`, `osc_server.py`, `osc_query.py`, `oscquery_server.py`, `http_server.py`,
+`control_page.html`)
 are described in "Show control". Two more modules support them:
 
 - `jack/show/motion/motor_driver.py` (domain, pure): `MotorDriver`, one per

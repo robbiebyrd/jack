@@ -22,6 +22,7 @@ from jack.adapters.audio.roc_voice import RocVoice, roc_recv_command
 from jack.adapters.hardware.motor_hats import build_motors
 from jack.adapters.network.http_server import start_http_server
 from jack.adapters.network.osc_server import OscEndpoint, start_feedback
+from jack.adapters.network.oscquery_server import start_oscquery_server
 from jack.adapters.system.deployment import (
     ALSA_DEVICE,
     ALSA_PERIODS,
@@ -92,7 +93,7 @@ def startup_line(config: AppConfig, motor_names: list[str]) -> str:
         f"Talking: ROC (UDP {roc.source_port}/{roc.repair_port}/{roc.control_port}, "
         f"{roc.target_latency_ms:g} ms) and Mumble voice on {ALSA_DEVICE}; "
         f"motors {', '.join(motor_names)} on {SUPPLY_VOLTS} V; "
-        f"mouth {show.mouth_mode}; OSC UDP {show.osc_port}, HTTP {show.http_port}; "
+        f"mouth {show.mouth_mode}; OSC UDP {show.osc_port}, OSCQuery {show.oscquery_port}, HTTP {show.http_port}; "
         f"OSC replies to {reply_target}"
         + (f"; uncalibrated: {', '.join(uncalibrated)}" if uncalibrated else "")
     )
@@ -128,6 +129,9 @@ def main() -> None:
             endpoint.serve(lambda address, args, sender: handle_osc(address, args, sender, context))
             start_feedback(endpoint, subscribers, lambda: board.status(voice.connected))
             start_http_server("0.0.0.0", show.http_port, board, profiles, lambda: voice.connected)
+            start_oscquery_server(
+                "0.0.0.0", show.oscquery_port, profiles, lambda: board.status(voice.connected), show.osc_port,
+            )
             log.info(startup_line(config, list(motors)))
             notify("READY=1")
             run_talk_loop(

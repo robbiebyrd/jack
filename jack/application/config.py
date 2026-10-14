@@ -36,6 +36,9 @@ REPLACED_BY_MOUTH_GAIN = ("gate_open_db", "gate_close_db", "full_db", "open_curv
 # Show control (SPEC.md "Show control"); every value can be set in jack.env.
 DEFAULT_OSC_PORT = 9000
 DEFAULT_HTTP_PORT = 8080
+# OSCQuery's own TCP port: it owns `/`, which the HTTP port serves the control page on.
+# deploy/jack.avahi.service advertises it, so change both together.
+DEFAULT_OSCQUERY_PORT = 9001
 # Longer than the longest hold (the pivot's 4 s): TouchOSC doesn't resend a fader held still, and its
 # faders send rest themselves on release, so this only covers a lost network or a crashed controller.
 DEFAULT_CONTROL_TIMEOUT_S = 5.0
@@ -58,6 +61,7 @@ class ShowControlConfig:
     timeout_s: float
     mouth_mode: str
     reply_port: int | None = None
+    oscquery_port: int = DEFAULT_OSCQUERY_PORT
 
 
 @dataclass(frozen=True)
@@ -177,6 +181,7 @@ def show_control_config(environ: Mapping[str, str]) -> ShowControlConfig:
         timeout_s=timeout,
         mouth_mode=mode,
         reply_port=_env_port(environ, "JACK_OSC_REPLY_PORT"),
+        oscquery_port=_env_port(environ, "JACK_OSCQUERY_PORT") or DEFAULT_OSCQUERY_PORT,
     )
 
 
